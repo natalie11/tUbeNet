@@ -48,17 +48,17 @@ from functools import partial
 """Set hard-coded parameters:"""
 
 # Paramters
-downsample_factor = 4           # factor by which images are downsampled in x and y dimensions 
-pad_array = 1024	            	# size images are padded up to, to achieve n^2 x n^2 structure 
-volume_dims = (64,128,128)      # size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 2			              # number of epoch for training CNN
-batch_size = 2		 	            # batch size for training CNN
-n_rep = 300			                # number of training cycle repetitions
-use_saved_model = True	        # use saved model structure and weights? Yes=True, No=False
-save_model = False		          # save model structure and weights? Yes=True, No=False
-class_weights = (1,5) 	        # relative weighting of background to blood vessel classes
-save_after = (5000,15000)       # save intermediate softmax output after this many training cycles
-binary_output = True 	          # save as binary (True) or softmax (False)
+downsample_factor = 4           	# factor by which images are downsampled in x and y dimensions 
+pad_array = 1024	           	# size images are padded up to, to achieve n^2 x n^2 structure 
+volume_dims = (64,128,128)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
+n_epochs = 2			         	# number of epoch for training CNN
+batch_size = 2		 	       	# batch size for training CNN
+n_rep = 30			         	 	# number of training cycle repetitions
+use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
+save_model = False		        	# save model structure and weights? Yes=True, No=False
+class_weights = (1,5) 	        	# relative weighting of background to blood vessel classes
+save_after = (5000,15000)       	# save intermediate softmax output after this many training cycles
+binary_output = True 	         	# save as binary (True) or softmax (False)
 
 # Paths and filenames
 path = "G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2"
@@ -390,15 +390,29 @@ def train_model(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,6
       
 	    # save predicted segmentations at defined intervals during training
 	    if i in save_after:
-		    predict_segmentation(model_tpu=model_tpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epoch, n_classes=n_classes, binary_output=False)
+		    predict_segmentation(model_tpu=model_tpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epochs, n_classes=n_classes, binary_output=False)
 
 """# Prediction
 
 Define prediction function FIX TO ENABLE DIFFERENT BATCH SIZES!
 """
+def replace_range(i,step_size,overlap):
+    if i==0:
+        x0 = 0
+        x1 = x0 + step_size
+        x0sub = 0
+        x1sub = x0sub + step_size
+    else:
+        x0 = i*(step_size + overlap) + overlap
+        x1 = x0 + (step_size - overlap)
+        x0sub = i*step_size + overlap
+        x1sub = x0sub + (step_size - overlap)
+            
+    return [x0,x1],[x0sub,x1sub]
+
 
 # Get predicted segmentations (one hot encoded) for an image stack
-def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2, n_classes=2, binary_output=True):
+def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, step_size=None, n_rep=100, n_epochs=2, n_classes=2, binary_output=True):
   print('Using model to predict segmentation')
   
   # Format volume_dims as (z,x,y)
@@ -406,44 +420,111 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
     volume_dims = (volume_dims, volume_dims, volume_dims)
   elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
     volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
-  # Check for sensible volume dimensions
+    
+  # Check for sensible volume dimensions and step size
   for i in range(3):
     if volume_dims[i]<=0 or volume_dims[i]>image_stack.shape[i]:
       raise Exception('Volume dimensions out of range')
+	
+  if step_size is None:
+    step_size=volume_dims[0]
+  for i in range(3):
+    if volume_dims[i]>step_size:
+      raise Exception('step_size must best smaller or equal to the subvolume dimensions')
+  overlap=int(volume_dims[0]-step_size)
+    
         
-  seg_pred = np.zeros((volume_dims[0]*2, image_stack.shape[1], image_stack.shape[2]))
-  for k in range (int(image_stack.shape[0]/volume_dims[0]*batch_size)-1):
-    z = volume_dims[0]*k*batch_size
+  # Initialise seg_pred
+  seg_pred = np.zeros((int(step_size*batch_size+overlap), image_stack.shape[1], image_stack.shape[2]))
+  for k in range (int((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
+    # find z coordinates for batch
+    z = k*batch_size*step_size
+    
     # break if batch will go outside of range of image
-    if (image_stack.shape[0]-z)<(volume_dims[0]*2):
+    if (image_stack.shape[0]-z)<(batch_size*step_size+overlap):
       break
 			
-    for i in range (int(image_stack.shape[1]/volume_dims[1])):
-      x = volume_dims[1]*i
-      for j in range (int(image_stack.shape[2]/volume_dims[2])):
-        y = volume_dims[2]*j		
+    for i in range (int(image_stack.shape[1]/step_size)):
+      x = i*step_size # x coordinate for batch
+	
+      for j in range (int(image_stack.shape[2]/step_size)):
+        y = j*step_size # y coordinate for batch		
         
 				# Create batch along z axis of image (axis 0 of image stack)
-        vol = load_batch(batch_size=batch_size, volume_dims=volume_dims, coords=(z,x,y), n_classes=n_classes, image_stack=image_stack)
+        vol = load_batch(batch_size=batch_size, volume_dims=volume_dims, coords=(z,x,y), n_classes=n_classes, image_stack=image_stack, step_size=step_size)
 								
 				# predict segmentation using model
         vol_pred_ohe = model_tpu.predict(vol,verbose=1) 
-				
+        del vol
+  
+        # average overlapped region in z axis
+        vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0],vol_pred_ohe.shape[2:]))
+        for n in range(batch_size):
+          # Define overlap region average with end of previous volume
+          overlap_region_top = vol_pred_ohe[n,0:overlap,:,:,:]
+          if z==0: overlap_region_av = overlap_region_top
+          else: overlap_region_av = (overlap_region_top+overlap_region_bottom)/2 
+          unique_region = vol_pred_ohe[n,overlap:step_size,:,:,:]
+          vol_pred_ohe_av_z[(n)*step_size:(n)*step_size+overlap,:,:,:] = overlap_region_av
+          vol_pred_ohe_av_z[(n)*step_size+overlap:(2*step_size),:,:,:,:] = unique_region
+          overlap_region_bottom = vol_pred_ohe[n,step_size:step_size+overlap,:,:,:] # Save bottom overlap region for next iteration
+
+          del overlap_region_top, unique_region  
+	          
+        del vol_pred_ohe
+        # Append bottom overlap region if this is the last iteration in the z axis
+#        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
+#          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
+
+	      
+        # average overlapped region in x axis
+        vol_pred_ohe_av_x = np.zeros((seg_pred.shape[0],step_size,vol_pred_ohe_av_z.shape[2:]))
+        overlap_region_left = vol_pred_ohe_av_z[:,0:overlap,:,:]
+        if x==0: overlap_region_av = overlap_region_left
+        else: overlap_region_av = (overlap_region_left+overlap_region_right)/2 
+        unique_region = vol_pred_ohe_av_z[:,overlap:step_size,:,:]
+        vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
+        vol_pred_ohe_av_x[:,overlap:step_size,:,:] = unique_region
+        overlap_region_right = vol_pred_ohe_av_z[:,step_size:step_size+overlap,:,:] # Save right overlap region for next iteration
+    
+        del vol_pred_ohe_av_z, overlap_region_av, unique_region
+        # Append right overlap region if this is the last iteration in the x axis
+#        if i+1 >= int(image_stack.shape[1]/step_size):
+#          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
+	  
+        #average overlapped region in y axis
+        vol_pred_ohe_av_y = np.zeros((seg_pred.shape[0], vol_pred_ohe_av_x.shape[1],step_size,vol_pred_ohe_av_x.shape[3]))
+        overlap_region_front = vol_pred_ohe_av_x[:,:,0:overlap,:]
+        if x==0: overlap_region_av = overlap_region_front
+        else: overlap_region_av = (overlap_region_front+overlap_region_back)/2 
+        unique_region = vol_pred_ohe_av_x[:,:,overlap:step_size,:]
+        vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
+        vol_pred_ohe_av_x[:,overlap:step_size,:,:] = unique_region
+        overlap_region_back = vol_pred_ohe_av_x[:,step_size:step_size+overlap,:,:] # Save back overlap region for next iteration
+    
+        del vol_pred_ohe_av_x, overlap_region_av, unique_region
+        # Append back overlap region if this is the last iteration in the y axis
+#        if j+1 >= int(image_stack.shape[2]/step_size):
+#          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
+    
         if binary_output==True:
-					# reverse one hot encoding
-          class_pred = np.argmax(vol_pred_ohe,axis=4) # find most probable class for each pixel
-          vol_pred = np.zeros((vol_pred_ohe.shape[0], vol_pred_ohe.shape[1], vol_pred_ohe.shape[2], vol_pred_ohe.shape[3]))
+          # reverse one hot encoding
+          class_pred = np.argmax(vol_pred_ohe_av_y,axis=3) # find most probable class for each pixel
+          vol_pred = np.zeros(vol_pred_ohe_av_y.shape[:-1])
           for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
             vol_pred[class_pred==i] = cls
-					# add volume to seg_pred array
-          seg_pred[0:volume_dims[0], x:(x+volume_dims[1]), y:(y+volume_dims[2])] = vol_pred[0,:,:,:]
-          seg_pred[volume_dims[0]:volume_dims[0]*2, x:(x+volume_dims[1]), y:(y+volume_dims[2])] = vol_pred[1,:,:,:]
+			
+          # add volume to seg_pred array
+          for n in range (batch_size):
+            seg_pred[n*step_size:(n+1)*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred[n,:,:,:]
+          
         else:
-					# add volume to seg_pred array
-          seg_pred[0:volume_dims[0], x:(x+volume_dims[1]), y:(y+volume_dims[2])] = vol_pred_ohe[0,:,:,:,1]
-          seg_pred[volume_dims[0]:volume_dims[0]*2, x:(x+volume_dims[1]), y:(y+volume_dims[2])] = vol_pred_ohe[1,:,:,:,1]
+          # add volume to seg_pred array
+          for n in range (batch_size):
+            seg_pred[n*step_size:(n+1)*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred_ohe_av_y[n,:,:,:]
+
 					
-		# save segmented images
+    # save segmented images from this batch
     for im in range (seg_pred.shape[0]):
       filename = os.path.join(path,str(z+im+1)+"_"+str(n_rep)+"training_cycles.tif")
       save_image(seg_pred[im,:,:], filename)
