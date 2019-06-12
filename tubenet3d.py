@@ -118,7 +118,7 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, coords=None, labels=No
 """Load a batch of sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
 
 # load batch of sub-volumes for training or label prediction
-def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=None, labels=None, n_classes=None):
+def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=None, labels=None, n_classes=None, step_size=None):
   
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
@@ -141,7 +141,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=No
       labels_batch = []
       for z in range(batch_size):
         # Find coordinates
-        tmp_coords = (coords[0]+ (volume_dims[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
+        tmp_coords = (coords[0]+ (step_size*z), coords[1], coords[2]) # move one volume dimension along the z axis
         print('Loading image volume and labels with coordinates:{}'.format(tmp_coords))
         # Load sub-volume, image and labels
         volume, labels_volume = load_volume(volume_dims=volume_dims, coords=tmp_coords, image_stack=image_stack, labels=labels)
@@ -155,7 +155,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=No
       img_batch = []
       for z in range(batch_size):			
         # Find coordinates
-        tmp_coords = (coords[0]+ (volume_dims[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
+        tmp_coords = (coords[0]+ (step_size*z), coords[1], coords[2]) # move one volume dimension along the z axis
         print('Loading image volume with coordinates:{}'.format(tmp_coords))
         print(tmp_coords)  
         # Load random sub-volume, image and labels
@@ -429,7 +429,7 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
   if step_size is None:
     step_size=volume_dims[0]
   for i in range(3):
-    if volume_dims[i]>step_size:
+    if volume_dims[i]<step_size:
       raise Exception('step_size must best smaller or equal to the subvolume dimensions')
   overlap=int(volume_dims[0]-step_size)
     
@@ -439,6 +439,7 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
   for k in range (int((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
     # find z coordinates for batch
     z = k*batch_size*step_size
+    #seg_pred = np.zeros((int(step_size*batch_size+overlap), image_stack.shape[1], image_stack.shape[2]))
     
     # break if batch will go outside of range of image
     if (image_stack.shape[0]-z)<(batch_size*step_size+overlap):
@@ -458,15 +459,19 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
         del vol
   
         # average overlapped region in z axis
-        vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0],vol_pred_ohe.shape[2:]))
+        vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0]-overlap,vol_pred_ohe.shape[2],vol_pred_ohe.shape[3],vol_pred_ohe.shape[4]))
+        print('shape of vol_pred_av_z')
+        print(vol_pred_ohe_av_z.shape)
         for n in range(batch_size):
           # Define overlap region average with end of previous volume
           overlap_region_top = vol_pred_ohe[n,0:overlap,:,:,:]
+          print('shape of overlap_region_top')
+          print(overlap_region_top.shape)
           if z==0: overlap_region_av = overlap_region_top
           else: overlap_region_av = (overlap_region_top+overlap_region_bottom)/2 
           unique_region = vol_pred_ohe[n,overlap:step_size,:,:,:]
           vol_pred_ohe_av_z[(n)*step_size:(n)*step_size+overlap,:,:,:] = overlap_region_av
-          vol_pred_ohe_av_z[(n)*step_size+overlap:(2*step_size),:,:,:,:] = unique_region
+          vol_pred_ohe_av_z[(n)*step_size+overlap:(n+1)*step_size,:,:,:] = unique_region
           overlap_region_bottom = vol_pred_ohe[n,step_size:step_size+overlap,:,:,:] # Save bottom overlap region for next iteration
 
           del overlap_region_top, unique_region  
@@ -478,11 +483,17 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
 
 	      
         # average overlapped region in x axis
-        vol_pred_ohe_av_x = np.zeros((seg_pred.shape[0],step_size,vol_pred_ohe_av_z.shape[2:]))
+        vol_pred_ohe_av_x = np.zeros((vol_pred_ohe_av_z.shape[0],step_size,vol_pred_ohe_av_z.shape[2],vol_pred_ohe_av_z.shape[3]))
+        print('shape of vol_pred_av_x')
+        print(vol_pred_ohe_av_x.shape)
         overlap_region_left = vol_pred_ohe_av_z[:,0:overlap,:,:]
+        print('shape of overlap_region_left')
+        print(overlap_region_left.shape)
         if x==0: overlap_region_av = overlap_region_left
         else: overlap_region_av = (overlap_region_left+overlap_region_right)/2 
         unique_region = vol_pred_ohe_av_z[:,overlap:step_size,:,:]
+        print('shape of unique_region')
+        print(unique_region.shape)
         vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
         vol_pred_ohe_av_x[:,overlap:step_size,:,:] = unique_region
         overlap_region_right = vol_pred_ohe_av_z[:,step_size:step_size+overlap,:,:] # Save right overlap region for next iteration
@@ -493,14 +504,20 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
 #          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
 	  
         #average overlapped region in y axis
-        vol_pred_ohe_av_y = np.zeros((seg_pred.shape[0], vol_pred_ohe_av_x.shape[1],step_size,vol_pred_ohe_av_x.shape[3]))
+        vol_pred_ohe_av_y = np.zeros((vol_pred_ohe_av_x.shape[0], vol_pred_ohe_av_x.shape[1],step_size,vol_pred_ohe_av_x.shape[3]))
+        print('shape of vol_pred_av_y')
+        print(vol_pred_ohe_av_y.shape)
         overlap_region_front = vol_pred_ohe_av_x[:,:,0:overlap,:]
-        if x==0: overlap_region_av = overlap_region_front
+        print('shape of overlap_region_front')
+        print(overlap_region_front.shape)
+        if y==0: overlap_region_av = overlap_region_front
         else: overlap_region_av = (overlap_region_front+overlap_region_back)/2 
         unique_region = vol_pred_ohe_av_x[:,:,overlap:step_size,:]
-        vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
-        vol_pred_ohe_av_x[:,overlap:step_size,:,:] = unique_region
-        overlap_region_back = vol_pred_ohe_av_x[:,step_size:step_size+overlap,:,:] # Save back overlap region for next iteration
+        print('shape of unique_region')
+        print(unique_region.shape)
+        vol_pred_ohe_av_y[:,:,0:overlap,:] = overlap_region_av
+        vol_pred_ohe_av_y[:,:,overlap:step_size,:] = unique_region
+        overlap_region_back = vol_pred_ohe_av_x[:,:,step_size:step_size+overlap,:] # Save back overlap region for next iteration
     
         del vol_pred_ohe_av_x, overlap_region_av, unique_region
         # Append back overlap region if this is the last iteration in the y axis
@@ -515,13 +532,11 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
             vol_pred[class_pred==i] = cls
 			
           # add volume to seg_pred array
-          for n in range (batch_size):
-            seg_pred[n*step_size:(n+1)*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred[n,:,:,:]
+          seg_pred[z:(z+1)*batch_size*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred[:,:,:]
           
         else:
           # add volume to seg_pred array
-          for n in range (batch_size):
-            seg_pred[n*step_size:(n+1)*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred_ohe_av_y[n,:,:,:]
+          seg_pred[z:(z+1)*batch_size*step_size, x:(x+step_size), y:(y+step_size)] = vol_pred_ohe_av_y[:,:,:]
 
 					
     # save segmented images from this batch
@@ -643,4 +658,4 @@ whole_img = (whole_img-np.amin(whole_img))/(np.amax(whole_img)-np.amin(whole_img
 whole_img_pad = np.zeros([whole_img.shape[0],pad_array,pad_array], dtype='float32')
 whole_img_pad[0:whole_img.shape[0],xpad:whole_img.shape[1]+xpad,ypad:whole_img.shape[2]+ypad] = whole_img
 del whole_img
-predict_segmentation(model_tpu=model_tpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output)
+predict_segmentation(model_tpu=model_tpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, step_size=60)
