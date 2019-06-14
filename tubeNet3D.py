@@ -50,6 +50,7 @@ batch_size = 2		 	       	# batch size for training CNN
 n_rep = 30			         	 	# number of training cycle repetitions
 use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
 save_model = False		        	# save model structure and weights? Yes=True, No=False
+fine_tuning = False
 class_weights = (1,5) 	        	# relative weighting of background to blood vessel classes
 save_after = (5000,15000)       	# save intermediate softmax output after this many training cycles
 binary_output = True 	         	# save as binary (True) or softmax (False)
@@ -258,7 +259,7 @@ stop_loss_callback = EarlyStopping(monitor='val_loss', min_delta=0.000005, patie
 
 """Create tUbeNet model"""
 
-def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=1, learning_rate=1e-3, fine_tuning=False, freeze_layers=0):
+def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=2, learning_rate=1e-3, metrics=['accuracy']):
 
     """
     Adapted from:
@@ -349,8 +350,25 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=
 	    model = Model(inputs=[inputs], outputs=[conv12])
     
     # tell model to run on 2 gpus
-    model_gpu = multi_gpu_model(model, gpus=2) 
-    model_gpu.compile(optimizer=Adam(lr=1e-5), loss=custom_loss, metrics=['accuracy'])
+    model_gpu = multi_gpu_model(model, gpus=n_gpu) 
+    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    return model_gpu, model
+
+"""# Fine Tuning
+Define fine tuning function
+"""
+def fine_tuning(model=None, freeze_layers=0, n_gpu=2, learning_rate=1e-5, metrics=['accuracy']):
+    model.layers.pop()
+    # freeze weights for selected layers
+    for layer in model.layers[:freeze_layers]: layer.trainable = False
+    
+    # recover the output from the last layer in the model and use as input to new Classifer
+    last = model.layers[-1].output
+    classifer = Conv3D(n_classes, (1, 1, 1), activation='softmax')(last)
+    model = Model(inputs=[model.input], outputs=[classifier])
+    
+    model_gpu = multi_gpu_model(model, gpus=n_gpu)
+    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custome_loss, metrics=metrics)
     return model_gpu, model
 
 """# Training
@@ -358,7 +376,7 @@ Define training function
 """
 
 # train model on image_stack and corrosponding labels
-def train_model(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2, n_classes=2):
+def train_model(model_gpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2, n_classes=2):
     print('Training model')
     print('Number of epochs = {}'.format(n_epochs))
     
@@ -380,18 +398,18 @@ def train_model(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,6
 	    val_batch, val_labels = load_batch(batch_size=batch_size, volume_dims=volume_dims, n_classes=n_classes, image_stack=image_stack, labels=labels)
       
 	    # fit model
-	    history = model_tpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, validation_data=(val_batch,val_labels), verbose=1)
+	    history = model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, validation_data=(val_batch,val_labels), verbose=1)
       
 	    # save predicted segmentations at defined intervals during training
 	    if i in save_after:
-		    predict_segmentation(model_tpu=model_tpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epochs, n_classes=n_classes, binary_output=False)
+		    predict_segmentation(model_gpu=model_gpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epochs, n_classes=n_classes, binary_output=False)
 
 """# Prediction
 Define prediction function FIX TO ENABLE DIFFERENT BATCH SIZES!
 """
 
 # Get predicted segmentations (one hot encoded) for an image stack
-def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, overlap=None, n_rep=100, n_epochs=2, n_classes=2, binary_output=True):
+def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, overlap=None, n_rep=100, n_epochs=2, n_classes=2, binary_output=True):
   print('Using model to predict segmentation')
   
   # Format volume_dims as (z,x,y)
@@ -434,7 +452,7 @@ def predict_segmentation(model_tpu=None, image_stack=None, labels=None, volume_d
         vol = load_batch(batch_size=batch_size, volume_dims=volume_dims, coords=(z,x,y), n_classes=n_classes, image_stack=image_stack, step_size=step_size)
 								
 			# predict segmentation using model
-        vol_pred_ohe = model_tpu.predict(vol,verbose=1) 
+        vol_pred_ohe = model_gpu.predict(vol,verbose=1) 
         del vol
   
         # average overlapped region in z axis
@@ -575,37 +593,32 @@ jsonfile = os.path.join(model_path,model_filename+'.json') # file containing mod
 
 if use_saved_model:
   print('Loading model')
-	# open json
+  # open json
   json_file = open(jsonfile, 'r')
-	# load model from json
+  # load model from json
   model_json = json_file.read()
   json_file.close()
   model = model_from_json(model_json)
   # load weights into new model
   model.load_weights(mfile)
-  #if fine_tuning:
-    #newClassifier = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
-    #model = Model(inputs=[inputs], outputs=[newClassifier])
-    #NEED TO CAHNGE TO SEQUENTIAL TO USE THIS!
-    #for layer in model.layers[:10]:
-    #layer.trainable = False
-    
-  model_tpu = multi_gpu_model(model, gpus=2) 
-  model_tpu.compile(optimizer=Adam(lr=1e-3), loss=custom_loss, metrics=['accuracy', recall, precision])
-  
+  if fine_tuning:
+      model_gpu, model = fine_tuning(model=model, freeze_layers=10, n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
+  else:
+      model_gpu = multi_gpu_model(model, gpus=2) 
+      model_gpu.compile(optimizer=Adam(lr=1e-3), loss=custom_loss, metrics=['accuracy', precision, recall])
 else:   
 	print('Building model')
-	model_tpu, model = tUbeNet(n_classes=n_classes, input_height=volume_dims[0], input_width=volume_dims[1], input_depth=volume_dims[2], n_gpu=1, learning_rate=1e-3)
+	model_gpu, model = tUbeNet(n_classes=n_classes, input_height=volume_dims[0], input_width=volume_dims[1], input_depth=volume_dims[2], n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
   
 print('Template model structure')
 model.summary()
 print('TPU model structure')
-model_tpu.summary()
+model_gpu.summary()
 
 """Train and save model"""
 
 #TRAIN
-train_model(model_tpu=model_tpu, image_stack=img_pad, labels=seg_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes)
+train_model(model_gpu=model_gpu, image_stack=img_pad, labels=seg_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes)
 
 # SAVE MODEL
 if save_model:
@@ -634,4 +647,4 @@ whole_img = (whole_img-np.amin(whole_img))/(np.amax(whole_img)-np.amin(whole_img
 whole_img_pad = np.zeros([whole_img.shape[0],pad_array,pad_array], dtype='float32')
 whole_img_pad[0:whole_img.shape[0],xpad:whole_img.shape[1]+xpad,ypad:whole_img.shape[2]+ypad] = whole_img
 del whole_img
-predict_segmentation(model_tpu=model_tpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, step_size[0]=60)
+predict_segmentation(model_gpu=model_gpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, step_size[0]=60)
