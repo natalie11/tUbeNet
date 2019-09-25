@@ -47,9 +47,9 @@ pad_array = 1024	           	# size images are padded up to, to achieve n^2 x n^
 volume_dims = (64,128,128)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 2			         	# number of epoch for training CNN
 batch_size = 2		 	       	# batch size for training CNN
-n_rep = 30			         	 	# number of training cycle repetitions
-use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
-save_model = False		        	# save model structure and weights? Yes=True, No=False
+n_rep = 100		         	 	# number of training cycle repetitions
+use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
+save_model = True		        	# save model structure and weights? Yes=True, No=False
 fine_tuning = False
 class_weights = (1,5) 	        	# relative weighting of background to blood vessel classes
 save_after = (5000,15000)       	# save intermediate softmax output after this many training cycles
@@ -60,7 +60,7 @@ path = "G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.
 img_filename = os.path.join(path,"GFP_2044_2459.tif")
 seg_filename = os.path.join(path,"Monica_seg_binary_2044_2459.tif")
 whole_img_filename = os.path.join(path,"GFP.tif")
-model_path = "D:\\HREM predicated segmentations\\Histories and models"
+model_path = "G:\\Vessel Segmentation\\saved_weights\\3D"
 model_filename = 'HREM_30000x2epochs_excl0.1percentVessels_4xdownsampled_1-5weighting'
 updated_model_filename = 'updated'
 history_filename = 'HREM_30000x2epochs_excl0.1percentVessels_4xdownsampled'
@@ -127,7 +127,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=No
     
   if coords is not None:
     # Check for sensible coordinates
-    if step_size is None: step_size = coords
+    if step_size is None: step_size = volume_dims
     for i in range(3):
       if coords[i]<0 or coords[i]>(image_stack.shape[i]-volume_dims[i]):
         raise Exception('Coordinates out of range')
@@ -151,9 +151,8 @@ def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=No
       img_batch = []
       for z in range(batch_size):			
         # Find coordinates
-        tmp_coords = (coords[0]+ (step_size*z), coords[1], coords[2]) # move one volume dimension along the z axis
+        tmp_coords = (coords[0]+ (step_size[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
         print('Loading image volume with coordinates:{}'.format(tmp_coords))
-        print(tmp_coords)  
         # Load random sub-volume, image and labels
         volume = load_volume(volume_dims=volume_dims, coords=tmp_coords, image_stack=image_stack)
         # Reshape volume and append to batch
@@ -358,17 +357,21 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=
 Define fine tuning function
 """
 def fine_tuning(model=None, freeze_layers=0, n_gpu=2, learning_rate=1e-5, metrics=['accuracy']):
-    model.layers.pop()
-    # freeze weights for selected layers
-    for layer in model.layers[:freeze_layers]: layer.trainable = False
+
     
     # recover the output from the last layer in the model and use as input to new Classifer
     last = model.layers[-1].output
-    classifer = Conv3D(n_classes, (1, 1, 1), activation='softmax')(last)
+    classifier = Conv3D(n_classes, (1, 1, 1), activation='softmax', name='classifier1')(last)
+    
+    # rename new classifier layer to avoid error caused by layer having the same name as first layer of base model
+    
     model = Model(inputs=[model.input], outputs=[classifier])
     
+    # freeze weights for selected layers
+    for layer in model.layers[:freeze_layers]: layer.trainable = False
+    
     model_gpu = multi_gpu_model(model, gpus=n_gpu)
-    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custome_loss, metrics=metrics)
+    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
     return model_gpu, model
 
 """# Training
@@ -405,7 +408,7 @@ def train_model(model_gpu=None, image_stack=None, labels=None, volume_dims=(64,6
 		    predict_segmentation(model_gpu=model_gpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epochs, n_classes=n_classes, binary_output=False)
 
 """# Prediction
-Define prediction function FIX TO ENABLE DIFFERENT BATCH SIZES!
+Define prediction function 
 """
 
 # Get predicted segmentations (one hot encoded) for an image stack
@@ -434,10 +437,15 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_d
         
   # Initialise seg_pred
   seg_pred = np.zeros((int(step_size[0]*batch_size), image_stack.shape[1], image_stack.shape[2]))
+  # Initialise 'overlap_region' variables
+  overlap_region_bottom = np.zeros((int(overlap*batch_size), image_stack.shape[1], image_stack.shape[2], n_classes))
+  overlap_region_right = np.zeros((step_size[0]*batch_size, overlap, image_stack.shape[2], n_classes))
+  overlap_region_back = 1
+  
   for k in range (int((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
     # find z coordinates for batch
     z = k*batch_size*step_size[0]
-        
+         
     # break if batch will go outside of range of image
     if (image_stack.shape[0]-z)<(batch_size*step_size[0]+overlap):
       break
@@ -456,70 +464,58 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_d
         del vol
   
         # average overlapped region in z axis
-        vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0]-overlap,vol_pred_ohe.shape[2],vol_pred_ohe.shape[3],vol_pred_ohe.shape[4]))
-        print('shape of vol_pred_av_z')
-        print(vol_pred_ohe_av_z.shape)
+        vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0],vol_pred_ohe.shape[2],vol_pred_ohe.shape[3],vol_pred_ohe.shape[4]))
         for n in range(batch_size):
-          # Define overlap region average with end of previous volume
+          # Define top overlapping region
           overlap_region_top = vol_pred_ohe[n,0:overlap,:,:,:]
-          print('shape of overlap_region_top')
-          print(overlap_region_top.shape)
+          # If this is first iteration in z, average of overlapping region is just overal_region_top
           if z==0: overlap_region_av = overlap_region_top
-          else: overlap_region_av = (overlap_region_top+overlap_region_bottom)/2 
+          # Else, load the bottom overlapping region for the previous z coordinate with the same x and y coordinates
+          else: 
+            if (n-1)<0: overlap_region_av = (overlap_region_top+overlap_region_bottom[(batch_size-1):(batch_size-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2
+            else: overlap_region_av = (overlap_region_top+overlap_region_bottom[(n-1):(n-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2 
           unique_region = vol_pred_ohe[n,overlap:step_size[0],:,:,:]
           vol_pred_ohe_av_z[(n)*step_size[0]:(n)*step_size[0]+overlap,:,:,:] = overlap_region_av
           vol_pred_ohe_av_z[(n)*step_size[0]+overlap:(n+1)*step_size[0],:,:,:] = unique_region
-          overlap_region_bottom = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
+          overlap_region_bottom[n:n+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
 
           del overlap_region_top, unique_region  
 	          
         del vol_pred_ohe
         # Append bottom overlap region if this is the last iteration in the z axis
-        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
-          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
+#        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
+#          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
 
 	      
         # average overlapped region in x axis
         vol_pred_ohe_av_x = np.zeros((vol_pred_ohe_av_z.shape[0],step_size[1],vol_pred_ohe_av_z.shape[2],vol_pred_ohe_av_z.shape[3]))
-        print('shape of vol_pred_av_x')
-        print(vol_pred_ohe_av_x.shape)
         overlap_region_left = vol_pred_ohe_av_z[:,0:overlap,:,:]
-        print('shape of overlap_region_left')
-        print(overlap_region_left.shape)
         if x==0: overlap_region_av = overlap_region_left
-        else: overlap_region_av = (overlap_region_left+overlap_region_right)/2 
+        else: overlap_region_av = (overlap_region_left+overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:])/2
         unique_region = vol_pred_ohe_av_z[:,overlap:step_size[1],:,:]
-        print('shape of unique_region')
-        print(unique_region.shape)
         vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
         vol_pred_ohe_av_x[:,overlap:step_size[1],:,:] = unique_region
-        overlap_region_right = vol_pred_ohe_av_z[:,step_size[1]:step_size[1]+overlap,:,:] # Save right overlap region for next iteration
+        overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:] = vol_pred_ohe_av_z[:,step_size[1]:step_size[1]+overlap,:,:] # Save right overlap region for next iteration
     
         del vol_pred_ohe_av_z, overlap_region_av, unique_region
         # Append right overlap region if this is the last iteration in the x axis
-        if i+1 >= int(image_stack.shape[1]/step_size[1]):
-          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
+#        if i+1 >= int(image_stack.shape[1]/step_size[1]):
+#          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
 	  
         #average overlapped region in y axis
         vol_pred_ohe_av_y = np.zeros((vol_pred_ohe_av_x.shape[0], vol_pred_ohe_av_x.shape[1],step_size[2],vol_pred_ohe_av_x.shape[3]))
-        print('shape of vol_pred_av_y')
-        print(vol_pred_ohe_av_y.shape)
         overlap_region_front = vol_pred_ohe_av_x[:,:,0:overlap,:]
-        print('shape of overlap_region_front')
-        print(overlap_region_front.shape)
         if y==0: overlap_region_av = overlap_region_front
         else: overlap_region_av = (overlap_region_front+overlap_region_back)/2 
         unique_region = vol_pred_ohe_av_x[:,:,overlap:step_size[2],:]
-        print('shape of unique_region')
-        print(unique_region.shape)
         vol_pred_ohe_av_y[:,:,0:overlap,:] = overlap_region_av
         vol_pred_ohe_av_y[:,:,overlap:step_size[2],:] = unique_region
         overlap_region_back = vol_pred_ohe_av_x[:,:,step_size[2]:step_size[2]+overlap,:] # Save back overlap region for next iteration
     
         del vol_pred_ohe_av_x, overlap_region_av, unique_region
         # Append back overlap region if this is the last iteration in the y axis
-        if j+1 >= int(image_stack.shape[2]/step_size[2]):
-          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
+#        if j+1 >= int(image_stack.shape[2]/step_size[2]):
+#          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
     
         if binary_output==True:
           # reverse one hot encoding
@@ -529,11 +525,11 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_d
             vol_pred[class_pred==i] = cls
 			
           # add volume to seg_pred array
-          seg_pred[z:(z+vol_pred_ohe_av_y[0]), x:(x+vol_pred_ohe_av_y[1]), y:(y+vol_pred_ohe_av_y[2])] = vol_pred[:,:,:]
+          seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred[:,:,:]
           
         else:
           # add volume to seg_pred array
-          seg_pred[z:(z+vol_pred_ohe_av_y[0]), x:(x+vol_pred_ohe_av_y[1]), y:(y+vol_pred_ohe_av_y[2])] = vol_pred_ohe_av_y[:,:,:]
+          seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred_ohe_av_y[:,:,:,1]
 
 					
     # save segmented images from this batch
@@ -592,27 +588,27 @@ mfile = os.path.join(model_path,model_filename+'.h5') # file containing weights
 jsonfile = os.path.join(model_path,model_filename+'.json') # file containing model template in json format
 
 if use_saved_model:
-  print('Loading model')
-  # open json
-  json_file = open(jsonfile, 'r')
-  # load model from json
-  model_json = json_file.read()
-  json_file.close()
-  model = model_from_json(model_json)
-  # load weights into new model
-  model.load_weights(mfile)
-  if fine_tuning:
-      model_gpu, model = fine_tuning(model=model, freeze_layers=10, n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
-  else:
-      model_gpu = multi_gpu_model(model, gpus=2) 
-      model_gpu.compile(optimizer=Adam(lr=1e-3), loss=custom_loss, metrics=['accuracy', precision, recall])
+	print('Loading model')
+	# open json
+	json_file = open(jsonfile, 'r')
+	# load model from json
+	model_json = json_file.read()
+	json_file.close()
+	model = model_from_json(model_json)
+	# load weights into new model
+	model.load_weights(mfile)
+	if fine_tuning:
+		model_gpu, model = fine_tuning(model=model, freeze_layers=10, n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
+	else:
+		model_gpu = multi_gpu_model(model, gpus=2) 
+		model_gpu.compile(optimizer=Adam(lr=1e-3), loss=custom_loss, metrics=['accuracy', precision, recall])
 else:   
 	print('Building model')
 	model_gpu, model = tUbeNet(n_classes=n_classes, input_height=volume_dims[0], input_width=volume_dims[1], input_depth=volume_dims[2], n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
   
 print('Template model structure')
 model.summary()
-print('TPU model structure')
+print('GPU model structure')
 model_gpu.summary()
 
 """Train and save model"""
@@ -637,6 +633,9 @@ Predict segmentation for entire dataset
 
 #PREDICT
 print('Loading images from '+str(img_filename))
+# Find the number of unique classes in segmented training set
+classes = (0,1)
+n_classes = len(classes)
 whole_img=io.imread(whole_img_filename)
 whole_img=block_reduce(whole_img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
 
@@ -647,4 +646,4 @@ whole_img = (whole_img-np.amin(whole_img))/(np.amax(whole_img)-np.amin(whole_img
 whole_img_pad = np.zeros([whole_img.shape[0],pad_array,pad_array], dtype='float32')
 whole_img_pad[0:whole_img.shape[0],xpad:whole_img.shape[1]+xpad,ypad:whole_img.shape[2]+ypad] = whole_img
 del whole_img
-predict_segmentation(model_gpu=model_gpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, step_size[0]=60)
+predict_segmentation(model_gpu=model_gpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, overlap=4)
