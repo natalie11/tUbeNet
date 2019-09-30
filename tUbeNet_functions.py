@@ -54,7 +54,7 @@ Outputs:
 	volume = sub-section of the image array with dimensions equal to volume_dims
 	labels_volume = corrosponding array of image labels (if labels provided)
 """
-def load_volume(volume_dims=(64,64,64), image_stack=None, coords=None, labels=None):
+def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
   image_dims = image_stack.shape #image_dims[0] = z, [1] = x, [2] = y
   
   #Format volume_dims as (z,x,y)
@@ -91,7 +91,7 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, coords=None, labels=No
 
 """Load a batch of sub-volumes
 Inputs:
-	batch size = number of image sub-volumes per batch, int
+	batch size = number of image sub-volumes per batch (int, default 1)
 	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
 	image_stack = 3D image, preprocessed and given as np array (z,x,y)
 	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
@@ -102,7 +102,9 @@ Output:
 	img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
 
 # load batch of sub-volumes for training or label prediction
-def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=None, labels=None, n_classes=None, step_size=None):
+def load_batch(batch_size=1, volume_dims=(64,64,64), 
+               image_stack=None, labels=None, 
+               coords=None, n_classes=None, step_size=None):
   
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
@@ -179,16 +181,14 @@ def load_batch(batch_size=1, volume_dims=(64,64,64), image_stack=None, coords=No
   else:
     return img_batch
 
-"""Create custom loss function - weighted to address class imbalance"""
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+"""Custom loss function - weighted to address class imbalance"""
 
-def weighted_crossentropy_Nat(y_true, y_pred, weights):
+def weighted_crossentropy(y_true, y_pred, weights):
 	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
 	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
-# create partial for  to pass to complier
-custom_loss=partial(weighted_crossentropy_Nat, weights=class_weights)
-
-"""Create custom metrics"""
+"""Custom metrics"""
 
 def precision(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
@@ -211,6 +211,7 @@ def precision1(y_true, y_pred):
 	FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
 	precision1=TP/(TP+FP)
 	return precision1
+
 def recall1(y_true, y_pred):
 	#true positive
 	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
@@ -219,7 +220,7 @@ def recall1(y_true, y_pred):
 	recall1=TP/(TP+FN)
 	return recall1
 
-"""Create custom callbacks"""
+"""Custom callbacks"""
 
 class TimeHistory(Callback):
     # Record time taken to perform each epoch
@@ -254,14 +255,25 @@ class TimedStopping(Callback):
             self.model.stop_training = True
             if self.verbose:
                 print('Stopping after %s seconds.' % self.seconds)
-                
-time_callback = TimeHistory()		      
-stop_time_callback = TimedStopping(seconds=18000, verbose=1) 
-stop_loss_callback = EarlyStopping(monitor='val_loss', min_delta=0.000005, patience=50, mode='min')
 
-"""Create tUbeNet model"""
+#---------------------------------------------------------------------------------------------------------------------------------------------------
+"""tUbeNet model
+Inputs:
+    n_classes = number of classes (int, default 2)
+    input_height = hight of input image (int, default 64)
+    input_width = width of input image (int, default 64)
+    input_depth = depth of input image (int, default 64)
+    n_gpus = number of GPUs to train o, if not provided model will train on CPU (int, default None)
+    learning_rate = learning rate (float, default 1e-3)
+    loss = loss function, function or string
+    metrics = training metrics, list of functions or strings
+Outputs:
+    model = compiled model
+    model_gpu = compiled multi-GPU model
+"""
 
-def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=2, learning_rate=1e-3, metrics=['accuracy']):
+def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, 
+            n_gpus=None, learning_rate=1e-3, loss=None, metrics=['accuracy']):
 
     """
     Adapted from:
@@ -348,17 +360,35 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, n_gpu=
     conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
 
     # create model on CPU
-    with tf.device("/cpu:0"):	
-	    model = Model(inputs=[inputs], outputs=[conv12])
-    
-    # tell model to run on 2 gpus
-    model_gpu = multi_gpu_model(model, gpus=n_gpu) 
-    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
-    return model_gpu, model
+    if n_gpus is not None:
+        with tf.device("/cpu:0"):	
+    	    model = Model(inputs=[inputs], outputs=[conv12])
+        
+        # tell model to run on multiple gpus
+        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
+        model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        return model_gpu, model
+    else:
+        model = Model(inputs=[inputs], outputs=[conv12])
+        model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
 
-""" Fine Tuning - Define function to replace classifier and freeze shallow layers """
+""" Fine Tuning
+Replaces classifer layer and freezes shallow layers for fine tuning
+Inputs:
+    model = ML model
+    n_classes = number of classes (int, default 2)
+    freeze_layers = number of layers to freeze for training (int, default 0)
+    n_gpus = number of GPUs to train on, if undefined model will train on CPU (int, default None)
+    learning_rate = learning rate (float, default 1e-5)
+    loss = loss function, function or string
+    metrics = training metrics, list of functions or strings
+Outputs:
+    model = compiled model
+    model_gpu = compiled multi-GPU model
+"""
 
-def fine_tuning(model=None, freeze_layers=0, n_gpu=2, learning_rate=1e-5, metrics=['accuracy']):
+def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None, 
+                learning_rate=1e-5, loss=None, metrics=['accuracy']):
 
     
     # recover the output from the last layer in the model and use as input to new Classifer
@@ -372,11 +402,22 @@ def fine_tuning(model=None, freeze_layers=0, n_gpu=2, learning_rate=1e-5, metric
     # freeze weights for selected layers
     for layer in model.layers[:freeze_layers]: layer.trainable = False
     
-    model_gpu = multi_gpu_model(model, gpus=n_gpu)
-    model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
-    return model_gpu, model
+    if n_gpus is not None:       
+        # tell model to run on multiple gpus
+        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
+        model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        return model_gpu, model
+    else:
+        model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        return model
 
-""" Learning rate function """
+""" Learning rate function 
+Updates learning rate based on training iteration.
+Inputs:
+    model = ML model 
+    i = training iteration (int)
+    schedule = name of schedule to use, 'piecewise' or 'exponential' (string)
+"""
 # 
 def setLR(model_gpu, i, schedule):
 	if schedule == 'piecewise':
@@ -394,10 +435,29 @@ def setLR(model_gpu, i, schedule):
 	else:
 		print('No schedule chosen. Learning rate not updated')
 
-""" Training - Define training function """
+""" Training 
+Inputs:
+    model = ML model
+    model_gpu = model compiled on multiple GPUs
+    image_stack = np array of image data (z, x, y)
+    labels = np array of labels, (z, x, y, c) where c is number of classes
+    image_test = valdiation image data
+    labels_test = validation label data
+    voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
+    batch_size = number of image sub volumes per batch int, default 2)
+    n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
+    n_epochs = number of epochs per training iteration (int, default 2)
+    path = path for saving outputs and updated model
+    model_filename = filename for trained model
+    output_filename = filename for saving output graphs
+"""
 
 # train model on image_stack and corrosponding labels
-def train_model(model_gpu=None, image_stack=None, labels=None, image_test=None, labels_test=None, volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2, classes=(0,1)):
+def train_model(model=None, model_gpu=None, 
+                image_stack=None, labels=None, 
+                image_test=None, labels_test=None, 
+                volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2,
+                path=None, model_filename=None, output_filename=None):
     print('Training model')
     print('Number of epochs = {}'.format(n_epochs))
     accuracy_list=[]   
@@ -405,10 +465,10 @@ def train_model(model_gpu=None, image_stack=None, labels=None, image_test=None, 
     recall_list=[] 
     training_cycle_list=[] 
     
-    
+    classes = np.unique(labels)
     n_classes = len(classes)
     print('Training with {} classes'.format(n_classes)) 
-    
+      
     # Train for *n_rep* cycles of *n_epochs* epochs, loading a new batch of volumes every cycle
     for i in range(n_rep):
 	    print('Training cycle {}'.format(i))
@@ -417,92 +477,86 @@ def train_model(model_gpu=None, image_stack=None, labels=None, image_test=None, 
       # These numbers may need to be changed depending on the vessel density in the data being analysed
 	    vessels_present = False
 	    while vessels_present==False:
-		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, n_classes=n_classes, image_stack=image_stack, labels=labels)
+		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
+                                           n_classes=n_classes, image_stack=image_stack, labels=labels)
 		    if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
 			    vessels_present = True
 		    else:
 			    del vol_batch, labels_batch
 			    
-         # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
+	    # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
 	    if i % 5000 == 0 and i != 0:
 		    setLR(model_gpu, i, 'piecewise')
           
-	    # load data for validation
-	    #val_batch, val_labels = load_batch(batch_size=batch_size, volume_dims=volume_dims, n_classes=n_classes, image_stack=image_stack, labels=labels)
-      
 	    # fit model
 	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
-
 	    
+        # calculate metrics for validation data (every 400 training iterations)
 	    if i in range(6000,50001,400):
-		    training_cycle_list.append(i)
-		    print('start prediction')
-		    if i in save_after:
-			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, volume_dims=volume_dims, batch_size=batch_size, classes=(0,1), binary_output=True, accuracy_list=accuracy_list,precision_list=precision_list,recall_list=recall_list, save_output= True, save_name=str(n_rep)+'training_cycles', curve_output= True)
-			    #print('save_output= Ture')
-		    else:
-			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, volume_dims=volume_dims, batch_size=batch_size, classes=(0,1), binary_output=True, accuracy_list=accuracy_list,precision_list=precision_list,recall_list=recall_list, save_output= False, curve_output= True)
-		    print('end prediction')
+		    if image_test is not None:
+			    training_cycle_list.append(i)
+			    print('start prediction')
+			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
+                               volume_dims=volume_dims, batch_size=batch_size, classes=classes,
+                               accuracy_list=accuracy_list, precision_list=precision_list, recall_list=recall_list, 
+                               save_output= False, binary_output=False, validation_output=True)
+			    print('end prediction')
+                
+        # save model every 1000 iterations
 	    if i in range(1000,50001,1000):
-		    mfile_new = os.path.join(model_path, updated_model_filename+str(i)+'.h5') # file containing weights
-		    jsonfile_new = os.path.join(model_path, updated_model_filename+str(i)+'.json')
-		    print('Saving model')
-		    model_json = model.to_json()
-		    with open(jsonfile_new, "w") as json_file:
-			    json_file.write(model_json)
-				# serialize weights to HDF5
-		    model.save_weights(mfile_new)
+		    save_model(model, path, model_filename)
 		    
-    # plot accuracy
-    plt.plot(training_cycle_list,accuracy_list)
-    plt.title('Model accuracy')
-    plt.ylabel('Accuracy')
-    plt.xlabel('Training cycles')
-#    plt.legend(['train', 'test'], loc='upper left')
-    plt.savefig('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\loss_and_accuracy\\accuracy')
-    plt.show()
-    
-    # plot precision    
-    plt.plot(training_cycle_list,precision_list)
-    plt.title('Model precision')
-    plt.ylabel('Precision')
-    plt.xlabel('Training cycles')
-#    plt.legend(['train', 'test'], loc='upper left')
-    plt.savefig('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\loss_and_accuracy\\precision')
-    plt.show()
-    
-    # plot recall    
-    plt.plot(training_cycle_list,recall_list)
-    plt.title('Model recall')
-    plt.ylabel('Recall')
-    plt.xlabel('Training cycles')
-#    plt.legend(['train', 'test'], loc='upper left')
-    plt.savefig('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\loss_and_accuracy\\recall')
-    plt.show()   
-# =============================================================================
-#   # summarize history for loss
-#     plt.plot(hist.history['loss'])
-#     plt.plot(hist.history['val_loss'])
-#     plt.title('model loss')
-#     plt.ylabel('loss')
-#     plt.xlabel('epoch')
-#     plt.legend(['train', 'test'], loc='upper left')
-#     plt.savefig('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\loss_and_accuracy\\loss')
-#     plt.show()
-# =============================================================================
-    
-   
-	    # save predicted segmentations at defined intervals during training
-	    #if i in save_after:
-		    #predict_segmentation(model_gpu=model_gpu, image_stack=image_stack, volume_dims=volume_dims, batch_size=batch_size, n_rep=i, n_epochs=n_epochs, n_classes=n_classes, binary_output=False)
+    if output_filename is not None:
+        # plot accuracy
+        plt.plot(training_cycle_list,accuracy_list)
+        plt.title('Model accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_accuracy')
+        plt.show()
+        
+        # plot precision    
+        plt.plot(training_cycle_list,precision_list)
+        plt.title('Model precision')
+        plt.ylabel('Precision')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_precision')
+        plt.show()
+        
+        # plot recall    
+        plt.plot(training_cycle_list,recall_list)
+        plt.title('Model recall')
+        plt.ylabel('Recall')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_recall')
+        plt.show()   
+
+    return training_cycle_list, accuracy_list, precision_list, recall_list
 
 """# Prediction
-Define prediction function 
+Inputs:
+    model_gpu = ML model
+    image_stack = np array of image data (z, x, y)
+    labels = np array of labels, (z, x, y, c) where c is number of classes, required for validation
+    volume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
+    batch_size = number of image sub volumes per batch int, default 2)
+    overlap =
+    classes =
+    binary_output =
+    save_output =
+    filename = filename for saving outputs (string)
+    path = path for saving outputs (string)
+    accuracy_list =
+    precision_list =
+    recall_list =
+    vaildation_output = 
 """
 
 # Get predicted segmentations (one hot encoded) for an image stack
-def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), binary_output=True, save_output= True, save_name = None, accuracy_list=None,precision_list=None,recall_list=None, validation_output= False):
-  print('Using model to predict segmentation')
+def predict_segmentation(model_gpu=None, image_stack=None, labels=None, 
+                         volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
+                         binary_output=True, save_output= True, filename = None, path=None,
+                         accuracy_list=None, precision_list=None, recall_list=None, validation_output=False):
   
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
@@ -626,26 +680,25 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None, volume_d
             print('No true labels supplies. Validation metrics cannot be calculated')
       else:	 
             accuracy=np.mean(seg_pred == labels)
-            print('Accuracy of segmentation: {}'.format(accuracy))
-            accuracy_list.append(accuracy)
-            print('Accuracy list: {}'.format(accuracy_list))
+            print('Accuracy: {}'.format(accuracy))
+            if accuracy_list is not None:
+                accuracy_list.append(accuracy)
             p=precision1(labels,seg_pred)
-            precision_list.append(p)
+            if precision_list is not None:
+                precision_list.append(p)
+            print('Precision: {}'.format(precision_list))
             r=recall1(labels,seg_pred)
-            recall_list.append(r)
-            print('Precision of segmentation: {}'.format(precision_list))
-            print('Recall of segmentation: {}'.format(recall_list))
-            np.save('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\accuracy_list.npy', accuracy_list)
-            np.save('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\precision_list.npy', precision_list)
-            np.save('G:\\Vessel Segmentation\\liver_mag3.2_GFP_G5exp0.1_cy5_G4_exp0.015_thk1.72__2\\recall_list.npy', recall_list)    
+            if recall_list is not None:
+                recall_list.append(r)
+            print('Recall: {}'.format(recall_list))
            
 	# save segmented images from this batch
     if save_output==True:
       for im in range (seg_pred.shape[0]):
-        filename = os.path.join(path,str(z+im+1)+"_"+str(save_name)+".tif")
+        filename = os.path.join(path,str(z+im+1)+"_"+str(filename)+".tif")
         save_image(seg_pred[im,:,:], filename)
 					
-  return accuracy_list,precision_list,recall_list
+  return accuracy_list, precision_list, recall_list
 
 """# Pre-processing
 Load data, downsample if neccessary, normalise and pad.
@@ -703,17 +756,17 @@ def data_preprocessing(img_filename=None, label_filename=None, downsample_factor
 	
 	return img_pad
 
-img_pad, seg_pad, classes = data_preprocessing(image_filename=img_filename, label_filename=seg_filename, downsample_factor=downsample_factor, pad_array=pad_array)
-
-"""# Load or Build Model
-Load or build model, run training
+"""# Load Saved Model
+Inputs:
+    model_path = path of model to be opened
+    filename = model filename
+    fine_tuning = if 'True' model with be prepared for fine tuning with default settings
 """
-
-# LOAD / BUILD MODEL
-mfile = os.path.join(model_path,model_filename+'.h5') # file containing weights
-jsonfile = os.path.join(model_path,model_filename+'.json') # file containing model template in json format
-
-if use_saved_model:
+def load_saved_model(model_path=None, filename=None,
+                     learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuray'],
+                     freeze_layers=None, n_classes=2, fine_tuning=False):
+	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
+	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
 	print('Loading model')
 	# open json
 	json_file = open(jsonfile, 'r')
@@ -724,28 +777,21 @@ if use_saved_model:
 	# load weights into new model
 	model.load_weights(mfile)
 	if fine_tuning:
-		model_gpu, model = fine_tuning(model=model, freeze_layers=10, n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
+		model_gpu, model = fine_tuning(model=model, freeze_layers=freeze_layers, n_gpus=n_gpus, 
+                                 learning_rate=learning_rate, loss=loss, metrics=metrics)
 	else:
-		model_gpu = multi_gpu_model(model, gpus=2) 
-		model_gpu.compile(optimizer=Adam(lr=1e-3), loss=custom_loss, metrics=['accuracy', precision, recall])
-else:   
-	print('Building model')
-	model_gpu, model = tUbeNet(n_classes=len(classes), input_height=volume_dims[0], input_width=volume_dims[1], input_depth=volume_dims[2], n_gpu=2, learning_rate=1e-5, metrics=['accuracy',precision,recall])
-  
-print('Template model structure')
-model.summary()
-print('GPU model structure')
-model_gpu.summary()
-
-"""Train and save model"""
-
-#TRAIN
-train_model(model_gpu=model_gpu, image_stack=img_pad, labels=seg_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=len(classes))
+		model_gpu = multi_gpu_model(model, gpus=n_gpus) 
+		model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+	print('Template model structure')
+	model.summary()
+	print('GPU model structure')
+	model_gpu.summary()
+	return model_gpu, model
 
 # SAVE MODEL
-if save_model:
-	mfile_new = os.path.join(model_path, updated_model_filename+'.h5') # file containing weights
-	jsonfile_new = os.path.join(model_path, updated_model_filename+'.json')
+def save_model(model, model_path, filename):
+	mfile_new = os.path.join(model_path, filename+'.h5') # file containing weights
+	jsonfile_new = os.path.join(model_path, filename+'.json')
 	print('Saving model')
 	model_json = model.to_json()
 	with open(jsonfile_new, "w") as json_file:
@@ -753,24 +799,3 @@ if save_model:
 		# serialize weights to HDF5
 	model.save_weights(mfile_new)
 
-"""# Predict Segmentation
-Predict segmentation for entire dataset
-"""
-
-#PREDICT
-print('Loading images from '+str(img_filename))
-# Find the number of unique classes in segmented training set
-classes = (0,1)
-n_classes = len(classes)
-whole_img=io.imread(whole_img_filename)
-whole_img=whole_img[:,:,:,0]
-whole_img=block_reduce(whole_img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
-
-xpad=(pad_array-whole_img.shape[1])//2
-ypad=(pad_array-whole_img.shape[2])//2
-
-whole_img = (whole_img-np.amin(whole_img))/(np.amax(whole_img)-np.amin(whole_img))
-whole_img_pad = np.zeros([whole_img.shape[0],pad_array,pad_array], dtype='float32')
-whole_img_pad[0:whole_img.shape[0],xpad:whole_img.shape[1]+xpad,ypad:whole_img.shape[2]+ypad] = whole_img
-del whole_img
-predict_segmentation(model_gpu=model_gpu, image_stack=whole_img_pad, volume_dims=volume_dims, batch_size=batch_size, n_rep=n_rep, n_epochs=n_epochs, n_classes=n_classes, binary_output=binary_output, overlap=4)
