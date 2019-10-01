@@ -43,6 +43,53 @@ def save_image(array, filename):
 	image = Image.fromarray(array)
 	image.save(filename)
 
+def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
+				  image_filename=None, labels_filename=None, 
+				  coords=None, data_type='float64', offset=128):
+  #Format volume_dims as (z,x,y)
+  if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
+    volume_dims = (volume_dims, volume_dims, volume_dims)
+  elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
+    volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
+  # Check for sensible volume dimensions
+  for i in range(3):
+    if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
+      raise Exception('Volume dimensions out of range')
+	
+  if coords is not None:
+    # check for sensible coordinates
+    for i in range(3):
+      if coords[i]<0 or coords[i]>(image_dims[i]-volume_dims[i]):
+        raise Exception('Coordinates out of range')
+  else:
+    # generate random coordinates for upper left corner of volume
+    coords = np.zeros(3)
+    coords[0] = random.randint(0,(image_dims[0]-volume_dims[0]))
+    coords[1] = random.randint(0,(image_dims[1]-volume_dims[1])) 
+    coords[2] = random.randint(0,(image_dims[2]-volume_dims[2]))
+    
+  if data_type == 'float64' or data_type == 'int64':
+	  pixel = 8
+  elif data_type == 'float32' or data_type == 'int32':
+	  pixel = 4
+  elif data_type == 'int16':
+	  pixel = 2
+  elif data_type == 'int8' or data_type == 'bool':
+	  pixel = 1
+  else: raise Exception('Data type not supported')
+	  
+  y_offset = image_dims[2]*pixel
+  z_offset = image_dims[1]*image_dims[2]*pixel
+  volume=np.zeros(volume_dims)
+  for z in range(volume_dims[1]):
+    for y in range(volume_dims[2]):
+        volume_dims[z,y,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,volume_dims[1],volume_dims[2]),
+			 offset=(offset + pixel*coords[1] + y_offset*(y+coords[2]) + z_offset*(z+coords[0])))
+  
+  return volume
+
+  
+
 """Load a sub-volume of the 3D image. 
 These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
 Inputs: 
@@ -555,7 +602,7 @@ Inputs:
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model_gpu=None, image_stack=None, labels=None, 
                          volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
-                         binary_output=True, save_output= True, filename = None, path=None,
+                         binary_output=True, save_output= True, prediction_filename = None, path=None,
                          accuracy_list=None, precision_list=None, recall_list=None, validation_output=False):
   
   # Format volume_dims as (z,x,y)
@@ -627,8 +674,8 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 	          
         del vol_pred_ohe
         # Append bottom overlap region if this is the last iteration in the z axis
-#        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
-#          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
+        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
+          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
 
 	      
         # average overlapped region in x axis
@@ -643,8 +690,8 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
     
         del vol_pred_ohe_av_z, overlap_region_av, unique_region
         # Append right overlap region if this is the last iteration in the x axis
-#        if i+1 >= int(image_stack.shape[1]/step_size[1]):
-#          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
+        if i+1 >= int(image_stack.shape[1]/step_size[1]):
+          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
 	  
         #average overlapped region in y axis
         vol_pred_ohe_av_y = np.zeros((vol_pred_ohe_av_x.shape[0], vol_pred_ohe_av_x.shape[1],step_size[2],vol_pred_ohe_av_x.shape[3]))
@@ -658,8 +705,8 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
     
         del vol_pred_ohe_av_x, overlap_region_av, unique_region
         # Append back overlap region if this is the last iteration in the y axis
-#        if j+1 >= int(image_stack.shape[2]/step_size[2]):
-#          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
+        if j+1 >= int(image_stack.shape[2]/step_size[2]):
+          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
     
         if binary_output==True:
           # reverse one hot encoding
@@ -695,7 +742,7 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 	# save segmented images from this batch
     if save_output==True:
       for im in range (seg_pred.shape[0]):
-        filename = os.path.join(path,str(z+im+1)+"_"+str(filename)+".tif")
+        filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+".tif")
         save_image(seg_pred[im,:,:], filename)
 					
   return accuracy_list, precision_list, recall_list
@@ -704,10 +751,10 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 Load data, downsample if neccessary, normalise and pad.
 """
 
-def data_preprocessing(img_filename=None, label_filename=None, downsample_factor=1, pad_array=1024):
+def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=1024):
 	# Load image
-	print('Loading images from '+str(img_filename))
-	img=io.imread(img_filename)
+	print('Loading images from '+str(image_filename))
+	img=io.imread(image_filename)
 
 	# Downsampling
 	if downsample_factor >1:
@@ -763,7 +810,7 @@ Inputs:
     fine_tuning = if 'True' model with be prepared for fine tuning with default settings
 """
 def load_saved_model(model_path=None, filename=None,
-                     learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuray'],
+                     learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
 	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
 	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
