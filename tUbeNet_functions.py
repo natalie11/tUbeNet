@@ -38,19 +38,39 @@ from skimage.measure import block_reduce
 from functools import partial
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
-"""Save image"""
 def save_image(array, filename):
-	image = Image.fromarray(array)
-	image.save(filename)
+    """Save image to file
+    Inputs: 
+        array = 2D np.array containing mage data to be saved
+        filename = name under which to save file, including file extension
+    """
+    image = Image.fromarray(array)
+    image.save(filename)
 
 def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
-				  image_filename=None, labels_filename=None, 
+				  image_filename=None, label_filename=None, 
 				  coords=None, data_type='float64', offset=128):
+  """Load a sub-volume of the 3D image. 
+  These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
+  Inputs: 
+    volume_dims = shape of sub-volume, given as (z,x,y) (tuple of int, default (64,64,64))
+    image_dims = shape of image to be accessed, (z,x,y) (tuple of int)
+    image_filename = filename for np array of pre-processed image data (z,x,y)
+    label_filename = filename for np array of labels, (z,x,y,c) where c is the number of chanels. Array should be int8. Optional.
+    coords = coordinates for top left corner of sub-volume (tuple of int, if not specified will be randomly generated)
+    data_type = data type of the image array (string, default 'float634')
+    offset = number of bytes in file before pixel data begins (int, default 128)
+  Outputs:
+    volume = sub-section of the image array with dimensions equal to volume_dims
+    labels_volume = corrosponding array of image labels (if labels provided)
+  """
+
   #Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
     volume_dims = (volume_dims, volume_dims, volume_dims)
   elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
     volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
+  
   # Check for sensible volume dimensions
   for i in range(3):
     if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
@@ -67,7 +87,8 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
     coords[0] = random.randint(0,(image_dims[0]-volume_dims[0]))
     coords[1] = random.randint(0,(image_dims[1]-volume_dims[1])) 
     coords[2] = random.randint(0,(image_dims[2]-volume_dims[2]))
-    
+  
+  # Set number of bytes per pixel, depending on data_type  
   if data_type == 'float64' or data_type == 'int64':
 	  pixel = 8
   elif data_type == 'float32' or data_type == 'int32':
@@ -77,31 +98,44 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   elif data_type == 'int8' or data_type == 'bool':
 	  pixel = 1
   else: raise Exception('Data type not supported')
-	  
+	
+  # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
   y_offset = image_dims[2]*pixel
   z_offset = image_dims[1]*image_dims[2]*pixel
+  
+  # Load data from file, one row at a time, using memmap
   volume=np.zeros(volume_dims)
   for z in range(volume_dims[1]):
     for y in range(volume_dims[2]):
-        volume_dims[z,y,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,volume_dims[1],volume_dims[2]),
+        volume[z,y,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,volume_dims[1],volume_dims[2]),
 			 offset=(offset + pixel*coords[1] + y_offset*(y+coords[2]) + z_offset*(z+coords[0])))
   
-  return volume
+  # If labels_filename given, generate labels_volume using same coordinates
+  if label_filename is not None:
+      labels_volume = np.zeros(volume_dims)
+      for z in range(volume_dims[1]):
+          for y in range(volume_dims[2]):
+              labels_volume[z,y,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,volume_dims[1],volume_dims[2]),
+                         offset=(offset + coords[1] + image_dims[2]*(y+coords[2]) + image_dims[1]*image_dims[2]*(z+coords[0])))
+      return volume, labels_volume
+  else:
+      return volume
 
   
 
-"""Load a sub-volume of the 3D image. 
-These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
-Inputs: 
-	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
-Outputs:
-	volume = sub-section of the image array with dimensions equal to volume_dims
-	labels_volume = corrosponding array of image labels (if labels provided)
-"""
+
 def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
+  """Load a sub-volume of the 3D image. 
+    These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
+    Inputs: 
+    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
+    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
+    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
+    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
+    Outputs:
+    	volume = sub-section of the image array with dimensions equal to volume_dims
+    	labels_volume = corrosponding array of image labels (if labels provided)
+    """
   image_dims = image_stack.shape #image_dims[0] = z, [1] = x, [2] = y
   
   #Format volume_dims as (z,x,y)
@@ -130,29 +164,29 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=No
   volume = image_stack[int(coords[0]):int(coords[0] + volume_dims[0]), int(coords[1]):int(coords[1] + volume_dims[1]), int(coords[2]):int(coords[2] + volume_dims[2])]
   
   if labels is not None:
-    # Create coorsponding labels
+    # Create corrsponding labels
     labels_volume = labels[int(coords[0]):int(coords[0] + volume_dims[0]), int(coords[1]):int(coords[1] + volume_dims[1]), int(coords[2]):int(coords[2] + volume_dims[2])]
     return volume, labels_volume
   else:
     return volume
 
-"""Load a batch of sub-volumes
-Inputs:
-	batch size = number of image sub-volumes per batch (int, default 1)
-	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
-	step_size = if loading volumes with pre-specified coordinates, this specifies the pixel distance between consecutive volumes 
-			(equals volume_dims by default), (z,x,y) tuple of int
-Output:
-	img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
 
 # load batch of sub-volumes for training or label prediction
 def load_batch(batch_size=1, volume_dims=(64,64,64), 
                image_stack=None, labels=None, 
-               coords=None, n_classes=None, step_size=None):
-  
+               coords=None, n_classes=None, step_size=None): 
+  """Load a batch of sub-volumes
+    Inputs:
+    	batch size = number of image sub-volumes per batch (int, default 1)
+    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
+    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
+    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
+    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
+    	step_size = if loading volumes with pre-specified coordinates, this specifies the pixel distance between consecutive volumes 
+    			(equals volume_dims by default), (z,x,y) tuple of int
+    Output:
+    	img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
+    
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
     volume_dims = (volume_dims, volume_dims, volume_dims)
@@ -229,14 +263,15 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
     return img_batch
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-"""Custom loss function - weighted to address class imbalance"""
+
 
 def weighted_crossentropy(y_true, y_pred, weights):
+	"""Custom loss function - weighted to address class imbalance"""
 	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
 	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
-"""Custom metrics"""
 
+"""Custom metrics"""
 def precision(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
     predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
@@ -268,7 +303,6 @@ def recall1(y_true, y_pred):
 	return recall1
 
 """Custom callbacks"""
-
 class TimeHistory(Callback):
     # Record time taken to perform each epoch
     def on_train_begin(self, logs={}):
@@ -304,25 +338,23 @@ class TimedStopping(Callback):
                 print('Stopping after %s seconds.' % self.seconds)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-"""tUbeNet model
-Inputs:
-    n_classes = number of classes (int, default 2)
-    input_height = hight of input image (int, default 64)
-    input_width = width of input image (int, default 64)
-    input_depth = depth of input image (int, default 64)
-    n_gpus = number of GPUs to train o, if not provided model will train on CPU (int, default None)
-    learning_rate = learning rate (float, default 1e-3)
-    loss = loss function, function or string
-    metrics = training metrics, list of functions or strings
-Outputs:
-    model = compiled model
-    model_gpu = compiled multi-GPU model
-"""
 
 def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, 
             n_gpus=None, learning_rate=1e-3, loss=None, metrics=['accuracy']):
-
-    """
+    """tUbeNet model
+    Inputs:
+        n_classes = number of classes (int, default 2)
+        input_height = hight of input image (int, default 64)
+        input_width = width of input image (int, default 64)
+        input_depth = depth of input image (int, default 64)
+        n_gpus = number of GPUs to train o, if not provided model will train on CPU (int, default None)
+        learning_rate = learning rate (float, default 1e-3)
+        loss = loss function, function or string
+        metrics = training metrics, list of functions or strings
+    Outputs:
+        model = compiled model
+        model_gpu = compiled multi-GPU model
+    
     Adapted from:
     https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
     """
@@ -419,25 +451,25 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         model = Model(inputs=[inputs], outputs=[conv12])
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
 
-""" Fine Tuning
-Replaces classifer layer and freezes shallow layers for fine tuning
-Inputs:
-    model = ML model
-    n_classes = number of classes (int, default 2)
-    freeze_layers = number of layers to freeze for training (int, default 0)
-    n_gpus = number of GPUs to train on, if undefined model will train on CPU (int, default None)
-    learning_rate = learning rate (float, default 1e-5)
-    loss = loss function, function or string
-    metrics = training metrics, list of functions or strings
-Outputs:
-    model = compiled model
-    model_gpu = compiled multi-GPU model
-"""
+
 
 def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None, 
                 learning_rate=1e-5, loss=None, metrics=['accuracy']):
+    """ Fine Tuning
+    Replaces classifer layer and freezes shallow layers for fine tuning
+    Inputs:
+        model = ML model
+        n_classes = number of classes (int, default 2)
+        freeze_layers = number of layers to freeze for training (int, default 0)
+        n_gpus = number of GPUs to train on, if undefined model will train on CPU (int, default None)
+        learning_rate = learning rate (float, default 1e-5)
+        loss = loss function, function or string
+        metrics = training metrics, list of functions or strings
+    Outputs:
+        model = compiled model
+        model_gpu = compiled multi-GPU model
+    """
 
-    
     # recover the output from the last layer in the model and use as input to new Classifer
     last = model.layers[-2].output
     classifier = Conv3D(n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
@@ -458,15 +490,15 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None,
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
         return model
 
-""" Learning rate function 
-Updates learning rate based on training iteration.
-Inputs:
-    model = ML model 
-    i = training iteration (int)
-    schedule = name of schedule to use, 'piecewise' or 'exponential' (string)
-"""
-# 
+ 
 def setLR(model_gpu, i, schedule):
+	""" Learning rate function 
+    Updates learning rate based on training iteration.
+    Inputs:
+        model = ML model 
+        i = training iteration (int)
+        schedule = name of schedule to use, 'piecewise' or 'exponential' (string)
+    """
 	if schedule == 'piecewise':
 		decay_rate = 0.9
 		lr = K.get_value(model_gpu.optimizer.lr)
@@ -482,22 +514,7 @@ def setLR(model_gpu, i, schedule):
 	else:
 		print('No schedule chosen. Learning rate not updated')
 
-""" Training 
-Inputs:
-    model = ML model
-    model_gpu = model compiled on multiple GPUs
-    image_stack = np array of image data (z, x, y)
-    labels = np array of labels, (z, x, y, c) where c is number of classes
-    image_test = valdiation image data
-    labels_test = validation label data
-    voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
-    batch_size = number of image sub volumes per batch int, default 2)
-    n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
-    n_epochs = number of epochs per training iteration (int, default 2)
-    path = path for saving outputs and updated model
-    model_filename = filename for trained model
-    output_filename = filename for saving output graphs
-"""
+
 
 # train model on image_stack and corrosponding labels
 def train_model(model=None, model_gpu=None, 
@@ -505,6 +522,23 @@ def train_model(model=None, model_gpu=None,
                 image_test=None, labels_test=None, 
                 volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2,
                 path=None, model_filename=None, output_filename=None):
+    """ Training 
+    Inputs:
+        model = ML model
+        model_gpu = model compiled on multiple GPUs
+        image_stack = np array of image data (z, x, y)
+        labels = np array of labels, (z, x, y, c) where c is number of classes
+        image_test = valdiation image data
+        labels_test = validation label data
+        voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
+        batch_size = number of image sub volumes per batch int, default 2)
+        n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
+        n_epochs = number of epochs per training iteration (int, default 2)
+        path = path for saving outputs and updated model
+        model_filename = filename for trained model
+        output_filename = filename for saving output graphs
+    """
+
     print('Training model')
     print('Number of epochs = {}'.format(n_epochs))
     accuracy_list=[]   
@@ -580,31 +614,31 @@ def train_model(model=None, model_gpu=None,
 
     return training_cycle_list, accuracy_list, precision_list, recall_list
 
-"""# Prediction
-Inputs:
-    model_gpu = ML model
-    image_stack = np array of image data (z, x, y)
-    labels = np array of labels, (z, x, y, c) where c is number of classes, required for validation
-    volume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
-    batch_size = number of image sub volumes per batch int, default 2)
-    overlap =
-    classes =
-    binary_output =
-    save_output =
-    filename = filename for saving outputs (string)
-    path = path for saving outputs (string)
-    accuracy_list =
-    precision_list =
-    recall_list =
-    vaildation_output = 
-"""
+
 
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model_gpu=None, image_stack=None, labels=None, 
                          volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
                          binary_output=True, save_output= True, prediction_filename = None, path=None,
-                         accuracy_list=None, precision_list=None, recall_list=None, validation_output=False):
-  
+                         accuracy_list=None, precision_list=None, recall_list=None, validation_output=False): 
+  """# Prediction
+    Inputs:
+        model_gpu = ML model
+        image_stack = np array of image data (z, x, y)
+        labels = np array of labels, (z, x, y, c) where c is number of classes, required for validation
+        volume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
+        batch_size = number of image sub volumes per batch int, default 2)
+        overlap =
+        classes =
+        binary_output =
+        save_output =
+        filename = filename for saving outputs (string)
+        path = path for saving outputs (string)
+        accuracy_list =
+        precision_list =
+        recall_list =
+        vaildation_output = 
+    """  
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
     volume_dims = (volume_dims, volume_dims, volume_dims)
@@ -747,12 +781,22 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 					
   return accuracy_list, precision_list, recall_list
 
-"""# Pre-processing
-Load data, downsample if neccessary, normalise and pad.
-"""
+
 
 def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=1024):
-	# Load image
+	"""# Pre-processing
+    Load data, downsample if neccessary, normalise and pad.
+    Inputs:
+        image_filename = image filename (string)
+        label_filename = labels filename (string)
+        downsample_factor = factor by which to downsample in x and y dimensions (int, default 1)
+        pad_array = size to pad image to, should be able to be written as 2^n where n is an integer (int, default 1024)
+    Outputs:
+        img_pad = image data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
+        seg_pad = label data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
+        classes = list of classes present in labels
+    """
+   # Load image
 	print('Loading images from '+str(image_filename))
 	img=io.imread(image_filename)
 
@@ -803,15 +847,25 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	
 	return img_pad
 
-"""# Load Saved Model
-Inputs:
-    model_path = path of model to be opened
-    filename = model filename
-    fine_tuning = if 'True' model with be prepared for fine tuning with default settings
-"""
+
 def load_saved_model(model_path=None, filename=None,
                      learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
+	"""# Load Saved Model
+    Inputs:
+        model_path = path of model to be opened (string)
+        filename = model filename (string)
+        n_gpus = number of GPUs for multi GPU model
+        fine_tuning = if 'True' model with be prepared for fine tuning with default settings (bool, default 'False')
+        freese_layers = number of shallow layers that won't be trained if fine tuning (int, default none)
+        n_classes = number of unique classes (int, default 2)
+        loss = loss function to be used in training
+        metrics = metrics to be monitored during training (default 'accuracy') 
+        learning_rate = learning rate for training (float, default 1e-3)
+    Outputs:
+        model_gpu = multi GPU model
+        model = model on CPU (required for saving)
+    """
 	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
 	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
 	print('Loading model')
@@ -837,6 +891,12 @@ def load_saved_model(model_path=None, filename=None,
 
 # SAVE MODEL
 def save_model(model, model_path, filename):
+	"""# Save Model as .json and .h5 (weights)
+    Inputs:
+        model = model object
+        model_path = path for model to be saved to (string)
+        filename = model filename (string)
+    """
 	mfile_new = os.path.join(model_path, filename+'.h5') # file containing weights
 	jsonfile_new = os.path.join(model_path, filename+'.json')
 	print('Saving model')

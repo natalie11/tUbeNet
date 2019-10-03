@@ -9,6 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 from sklearn.model_selection import train_test_split
 from functools import partial
+import numpy as np
 import tUbeNet_functions as tube
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -20,7 +21,7 @@ pad_array = 1024	           	   # size images are padded up to, to achieve n^2 x
 volume_dims = (64,128,128)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 3			         	      # number of epoch for training CNN
 batch_size = 2		 	       	   # batch size for training CNN
-n_rep = 500		         	 	   # number of training cycle repetitions
+n_rep = 500		         	 	      # number of training cycle repetitions
 use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
 save_model = False		        	   # save model structure and weights? Yes=True, No=False
 fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
@@ -53,6 +54,24 @@ img_pad, seg_pad, classes = tube.data_preprocessing(image_filename=img_filename,
                                                     downsample_factor=downsample_factor, pad_array=pad_array)
 test_size = int(round(img_pad.shape[0]*0.25))
 img_pad, img_test, seg_pad, seg_test = train_test_split(img_pad, seg_pad, test_size=test_size, random_state = 42)
+
+
+"""
+TESTING MEMMAP LOADING
+"""
+img_pad=img_pad.astype('float32')
+seg_pad=seg_pad.astype('int8')
+np.save('image_array',img_pad)
+np.save('labels_array',seg_pad)
+img_subvol, labels_subvol = tube.load_volume(volume_dims=(64,128,128),image_stack=img_pad, labels=seg_pad, coords=(100,50,200))
+tube.save_image(img_subvol, 'load_volume_output.tif')
+tube.save_image(labels_subvol, 'load_volume_labels_output.tif')
+
+img_subvol_mem, labels_subvol_mem = tube.load_volume_from_file(volume_dims=(64,128,128), image_dims = (100,1024,1024), 
+                                                               image_filename='image_array.npy', label_filename='labels_array.npy', coords=(100,50,200), data_type='float32')
+tube.save_image(img_subvol_mem, 'load_memmap_output.tif')
+tube.save_image(labels_subvol_mem, 'load_memmap_labels_output.tif')
+
 
 """ Load or Build Model """
 if use_saved_model:
