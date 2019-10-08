@@ -100,23 +100,23 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   else: raise Exception('Data type not supported')
 	
   # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
-  y_offset = image_dims[2]*pixel
+  x_offset = image_dims[1]*pixel
   z_offset = image_dims[1]*image_dims[2]*pixel
   
   # Load data from file, one row at a time, using memmap
   volume=np.zeros(volume_dims)
-  for z in range(volume_dims[1]):
-    for y in range(volume_dims[2]):
-        volume[z,y,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,volume_dims[1],volume_dims[2]),
-			 offset=(offset + pixel*coords[1] + y_offset*(y+coords[2]) + z_offset*(z+coords[0])))
+  for z in range(volume_dims[0]):
+    for x in range(volume_dims[1]):
+        volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
+			 offset=(offset + pixel*(coords[2]) + x_offset*(x+coords[1]) + z_offset*(z+coords[0])))
   
   # If labels_filename given, generate labels_volume using same coordinates
   if label_filename is not None:
       labels_volume = np.zeros(volume_dims)
-      for z in range(volume_dims[1]):
-          for y in range(volume_dims[2]):
-              labels_volume[z,y,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,volume_dims[1],volume_dims[2]),
-                         offset=(offset + coords[1] + image_dims[2]*(y+coords[2]) + image_dims[1]*image_dims[2]*(z+coords[0])))
+      for z in range(volume_dims[0]):
+          for x in range(volume_dims[1]):
+              labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
+                         offset=(offset + coords[2] + image_dims[1]*(x+coords[1]) + image_dims[1]*image_dims[2]*(z+coords[0])))
       return volume, labels_volume
   else:
       return volume

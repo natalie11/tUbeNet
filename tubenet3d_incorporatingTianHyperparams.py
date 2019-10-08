@@ -29,9 +29,9 @@ class_weights = (1,5) 	        	# relative weighting of background to blood vess
 binary_output = True 	           	# save as binary (True) or softmax (False)
 
 # Paths and filenames
-path = "F:\Paired datasets\HREM"
-img_filename = os.path.join(path,"GFP_2044_2459.tif")
-seg_filename = os.path.join(path,"Monica_seg_binary_2044_2459.tif")
+path = "C:\\Users\\Natal\\Documents\\CABI\\Vessel data"
+img_filename = os.path.join(path,"LS_C1M3_yanan_4subsample.tif")
+seg_filename = os.path.join(path,"LS_C1M3_yanan_segmentation.tif")
 whole_img_filename = os.path.join(path,"GFP_2044_2459.tif")
 model_path = "G:\\Vessel Segmentation\\saved_weights\\3D"
 model_filename = 'HREM_Adam_50000x2epochs_excl0.1percentVessels_4xdownsampled_1-5weighting_FineTunedCT_3114cycles'
@@ -63,14 +63,17 @@ img_pad=img_pad.astype('float32')
 seg_pad=seg_pad.astype('int8')
 np.save('image_array',img_pad)
 np.save('labels_array',seg_pad)
-img_subvol, labels_subvol = tube.load_volume(volume_dims=(64,128,128),image_stack=img_pad, labels=seg_pad, coords=(100,50,200))
-tube.save_image(img_subvol, 'load_volume_output.tif')
-tube.save_image(labels_subvol, 'load_volume_labels_output.tif')
+img_subvol, labels_subvol = tube.load_volume(volume_dims=(64,128,128),image_stack=img_pad, labels=seg_pad, coords=(10,50,200))
+for i in range(64):
+    tube.save_image(img_subvol[i,:,:], 'load_volume_output_'+str(i)+'.tif')
+    tube.save_image(labels_subvol[i,:,:], 'load_volume_labels_output'+str(i)+'.tif')
 
-img_subvol_mem, labels_subvol_mem = tube.load_volume_from_file(volume_dims=(64,128,128), image_dims = (100,1024,1024), 
-                                                               image_filename='image_array.npy', label_filename='labels_array.npy', coords=(100,50,200), data_type='float32')
-tube.save_image(img_subvol_mem, 'load_memmap_output.tif')
-tube.save_image(labels_subvol_mem, 'load_memmap_labels_output.tif')
+img_subvol_mem, labels_subvol_mem = tube.load_volume_from_file(volume_dims=(64,128,128), image_dims = (100,1024,1024),
+                                                               image_filename='image_array.npy', label_filename='labels_array.npy',
+                     offset=128,coords=(10,50,200), data_type='float32')
+for i in range(64):
+    tube.save_image(img_subvol_mem[i,:,:], 'load_memmap_output_'+str(i)+'.tif')
+    tube.save_image(labels_subvol_mem[i,:,:], 'load_memmap_labels_output'+str(i)+'.tif')
 
 
 """ Load or Build Model """
