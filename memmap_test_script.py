@@ -25,7 +25,7 @@ pad_array = 1024	           	   # size images are padded up to, to achieve n^2 x
 volume_dims = (64,128,128)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 
 # Paths and filenames
-path = "C:\\Users\\Natal\\Documents\\CABI\\Vessel data"
+path = "F:\\Paired datasets\\CT"
 img_filename = os.path.join(path,"LS_C1M3_yanan_4subsample.tif")
 seg_filename = os.path.join(path,"LS_C1M3_yanan_segmentation.tif")
 
@@ -237,16 +237,18 @@ TESTING MEMMAP LOADING
 """
 img_pad=img_pad.astype('float32')
 seg_pad=seg_pad.astype('int8')
-np.save('image_array',img_pad)
-np.save('labels_array',seg_pad)
-img_subvol, labels_subvol = load_volume(volume_dims=volume_dims,image_stack=img_pad, labels=seg_pad, coords=(300,800,600))
+image_array=os.path.join(path,"image_array.npy")
+label_array=os.path.join(path,"label_array.npy")
+np.save(image_array,img_pad)
+np.save(label_array,seg_pad)
+img_subvol, labels_subvol = load_volume(volume_dims=volume_dims,image_stack=img_pad, labels=seg_pad, coords=(300,400,500))
 for i in range(64):
-    save_image(img_subvol[i,:,:], 'load_volume_output_'+str(i)+'.tif')
-    save_image(labels_subvol[i,:,:], 'load_volume_labels_output'+str(i)+'.tif')
+    save_image(img_subvol[i,:,:], os.path.join(path,'load_volume_output_'+str(i)+'.tif'))
+    save_image(labels_subvol[i,:,:], os.path.join(path,'load_volume_labels_output'+str(i)+'.tif'))
 
 img_subvol_mem, labels_subvol_mem = load_volume_from_file(volume_dims=volume_dims, image_dims = (682,1024,1024),
-                     image_filename='image_array.npy', label_filename='labels_array.npy',
-                     offset=96,coords=(300,800,600), data_type='float32')
+                     image_filename=image_array, label_filename=label_array,
+                     offset=128,coords=(300,400,500), data_type='float32')
 for i in range(64):
-    save_image(img_subvol_mem[i,:,:], 'load_memmap_output_'+str(i)+'.tif')
-    save_image(labels_subvol_mem[i,:,:], 'load_memmap_labels_output'+str(i)+'.tif')
+    save_image(img_subvol_mem[i,:,:], os.path.join(path,'load_memmap_output_'+str(i)+'.tif'))
+    save_image(labels_subvol_mem[i,:,:], os.path.join(path,'load_memmap_labels_output'+str(i)+'.tif'))

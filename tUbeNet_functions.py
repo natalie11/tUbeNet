@@ -35,7 +35,6 @@ from PIL import Image
 from skimage import io
 from skimage.measure import block_reduce
 
-from functools import partial
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -107,21 +106,21 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   volume=np.zeros(volume_dims)
   for z in range(volume_dims[0]):
     for x in range(volume_dims[1]):
+        offset_zx = np.int64(offset + pixel*(coords[2]) + x_offset*(x+coords[1]) + z_offset*(z+coords[0]))
         volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
-			 offset=(offset + pixel*(coords[2]) + x_offset*(x+coords[1]) + z_offset*(z+coords[0])))
+			 offset=offset_zx)
   
   # If labels_filename given, generate labels_volume using same coordinates
   if label_filename is not None:
       labels_volume = np.zeros(volume_dims)
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
+              offset_zx = np.int64(offset + coords[2] + image_dims[1]*(x+coords[1]) + image_dims[1]*image_dims[2]*(z+coords[0]))
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
-                         offset=(offset + coords[2] + image_dims[1]*(x+coords[1]) + image_dims[1]*image_dims[2]*(z+coords[0])))
+                         offset=offset_zx)
       return volume, labels_volume
   else:
       return volume
-
-  
 
 
 def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
@@ -359,7 +358,7 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
     """
 
-    inputs = Input((input_height, input_width, input_depth, 1))
+    inputs = Input((input_depth, input_height, input_width, 1))
     conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same')(inputs)
     activ1 = LeakyReLU(alpha=0.2)(conv1)
     conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same')(activ1)
