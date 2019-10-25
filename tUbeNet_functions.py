@@ -9,6 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 import random
+import math
 
 # import required objects and fuctions from keras
 from keras.models import Model, model_from_json #load_model
@@ -34,7 +35,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from skimage import io
 from skimage.measure import block_reduce
-
+from sklearn.metrics import roc_auc_score, roc_curve, auc
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -106,7 +107,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   volume=np.zeros(volume_dims)
   for z in range(volume_dims[0]):
     for x in range(volume_dims[1]):
-        offset_zx = np.int64(offset + pixel*(coords[2]) + x_offset*(x+coords[1]) + z_offset*(z+coords[0]))
+        offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(x_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
         volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
 			 offset=offset_zx)
   
@@ -115,7 +116,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
       labels_volume = np.zeros(volume_dims)
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
-              offset_zx = np.int64(offset + coords[2] + image_dims[1]*(x+coords[1]) + image_dims[1]*image_dims[2]*(z+coords[0]))
+              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[1])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
                          offset=offset_zx)
       return volume, labels_volume
@@ -706,9 +707,9 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
           del overlap_region_top, unique_region  
 	          
         del vol_pred_ohe
-        # Append bottom overlap region if this is the last iteration in the z axis
-        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
-          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
+#        # Append bottom overlap region if this is the last iteration in the z axis
+#        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
+#          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
 
 	      
         # average overlapped region in x axis
@@ -720,26 +721,26 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
         vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
         vol_pred_ohe_av_x[:,overlap:step_size[1],:,:] = unique_region
         overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:] = vol_pred_ohe_av_z[:,step_size[1]:step_size[1]+overlap,:,:] # Save right overlap region for next iteration
-    
-        del vol_pred_ohe_av_z, overlap_region_av, unique_region
+
         # Append right overlap region if this is the last iteration in the x axis
-        if i+1 >= int(image_stack.shape[1]/step_size[1]):
-          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right, axis=1)
-	  
+#        if i+1 >= int(image_stack.shape[1]/step_size[1]):
+#          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:], axis=1)
+#        del vol_pred_ohe_av_z, overlap_region_av, unique_region
+        
+        
         #average overlapped region in y axis
         vol_pred_ohe_av_y = np.zeros((vol_pred_ohe_av_x.shape[0], vol_pred_ohe_av_x.shape[1],step_size[2],vol_pred_ohe_av_x.shape[3]))
         overlap_region_front = vol_pred_ohe_av_x[:,:,0:overlap,:]
         if y==0: overlap_region_av = overlap_region_front
-        else: overlap_region_av = (overlap_region_front+overlap_region_back)/2 
+        else: overlap_region_av = (overlap_region_front+overlap_region_back[:,0:60,:,:])/2 
         unique_region = vol_pred_ohe_av_x[:,:,overlap:step_size[2],:]
         vol_pred_ohe_av_y[:,:,0:overlap,:] = overlap_region_av
         vol_pred_ohe_av_y[:,:,overlap:step_size[2],:] = unique_region
         overlap_region_back = vol_pred_ohe_av_x[:,:,step_size[2]:step_size[2]+overlap,:] # Save back overlap region for next iteration
-    
         del vol_pred_ohe_av_x, overlap_region_av, unique_region
         # Append back overlap region if this is the last iteration in the y axis
-        if j+1 >= int(image_stack.shape[2]/step_size[2]):
-          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
+#        if j+1 >= int(image_stack.shape[2]/step_size[2]):
+#          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
     
         if binary_output==True:
           # reverse one hot encoding
@@ -905,3 +906,71 @@ def save_model(model, model_path, filename):
 		# serialize weights to HDF5
 	model.save_weights(mfile_new)
 
+def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1)): 
+    optimal_thresholds = []
+    for index in range(1,len(data_dir.list_IDs)):
+        print('Analysing ROC on '+str(data_dir.list_IDs[index])+' data')
+        y_pred_all = np.zeros(data_dir.image_dims[index])
+        y_test_all = np.zeros(data_dir.image_dims[index])                       
+        for k in range(math.ceil(data_dir.image_dims[index][0]/(volume_dims[0]*batch_size))):
+            # find z coordinates for batch
+            z = k*batch_size*volume_dims[0]   
+            # break if batch will go outside of range of image
+            for i in range (int(data_dir.image_dims[index][1]/volume_dims[1])):
+              x = i*volume_dims[1] # x coordinate for batch
+              for j in range (int(data_dir.image_dims[index][2]/volume_dims[2])):
+                y = j*volume_dims[2] # y coordinate for batch		
+                print('Coordinates: ({},{},{})'.format(z,y,x))
+                # initialise batch and temp volume dimensions
+                X_test = np.zeros((batch_size, *volume_dims))
+                y_test = np.zeros((batch_size, *volume_dims))
+                volume_dims_temp = list(volume_dims)
+                for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
+                    overspill = (n+1)*volume_dims[0]-(data_dir.image_dims[index][0]-z)
+                    if overspill>0 & overspill<volume_dims[0]:
+                        # Reduce volume dimensions for batch with overflow data
+                        volume_dims_temp[0] = volume_dims_temp[0] - overspill
+                    elif overspill>=volume_dims[0]:
+                        # Do not load data for this batch
+                        break
+                    # Load data from file
+                    X_test[n, 0:volume_dims_temp[0],...], y_test[n, 0:volume_dims_temp[0],...] = load_volume_from_file(volume_dims=volume_dims_temp, image_dims=data_dir.image_dims[index],
+                                   image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
+                                   coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)	
+
+                # Run prediction
+                X_test=X_test.reshape(*X_test.shape, 1)
+                y_pred=model.predict(X_test,verbose=0)
+                
+                # Remove padded slices in z axis if necessary (ie. if volume_dims_temp has been updated to remove overspill)
+                if volume_dims_temp[0] != volume_dims[0]:
+                    ibatch,iz = np.where(X_test!=0)[0:2] # find instances of non-zero values in X_test along axis 0 and 1
+                    y_test = y_test[0:max(ibatch)+1, 0:max(iz)+1, ...] # use this to index _test and y_pred
+                    y_pred = y_pred[0:max(ibatch)+1, 0:max(iz)+1, ...]
+                
+                # Add postive class only to stack
+                for n in range(batch_size):
+                    y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred[0], x:x+y_pred[1], y:y+y_pred[2]]=y_pred[n,...,1]
+                    y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test[0], x:x+y_test[1], y:y+y_test[2]]=y_test[n,...]
+        
+        #calculate false/true positive rates and area under curve
+        fpr, tpr, thresholds = roc_curve(np.ravel(y_test_all), np.ravel(y_pred_all))
+        area_under_curve = auc(fpr, tpr)
+        optimal_idx = np.argmax(tpr - fpr)
+        print('Opimal threshold: {}'.format(thresholds[optimal_idx]))
+        optimal_thresholds.append(thresholds[optimal_idx])
+        
+        # Plot ROC 
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange',
+                 lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
+        plt.legend(loc="lower right")
+        plt.show()
+
+    return optimal_thresholds
