@@ -14,13 +14,15 @@ import math
 # import required objects and fuctions from keras
 from keras.models import Model, model_from_json #load_model
 # CNN layers
-from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout
+from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
 from keras.utils import multi_gpu_model, to_categorical #np_utils
 # opimiser
 from keras.optimizers import Adam
+# initiliser
+from keras.initializers import RandomNormal
 # checkpoint
-from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping
+from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch
 import time
 # import tensor flow
@@ -404,8 +406,16 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ6)
     activ6 = LeakyReLU(alpha=0.2)(conv6)
     
+#    # Global Feature Vector
+#    _,d,h,w,n = activ6._shape_tuple()
+#    ap = AveragePooling3D(pool_size=(d,h,w))(activ6)
+#    fl = Flatten()(ap)
+#    out = Dense(n,kernel_initializer=RandomNormal(stddev=0.02))(fl)
+#    out = Reshape((1,1,1,n))(out)
+#    out = Lambda(K.tile, arguments={'n':(1,d,h,w,1)})(out)
+    
 
-    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ6), activ5], axis=4)    
+    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same')(conv6), activ5], axis=4)    
     conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(up7)
     activ7 = LeakyReLU(alpha=0.2)(conv7)
     conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ7)
@@ -437,7 +447,7 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     activ11 = LeakyReLU(alpha=0.2)(conv11)
     
     conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
-
+        
     # create model on CPU
     if n_gpus is not None:
         with tf.device("/cpu:0"):	
@@ -491,30 +501,16 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None,
         return model
 
  
-def setLR(model_gpu, i, schedule):
+def piecewise_schedule(i, lr0, decay):
 	""" Learning rate function 
-    Updates learning rate based on training iteration.
+    Updates learning rate at end epoch.
     Inputs:
-        model = ML model 
-        i = training iteration (int)
-        schedule = name of schedule to use, 'piecewise' or 'exponential' (string)
+        i = training epoch (int)
+        lr0 = initial learning rate (float)
+        decay = decay rate (float)
     """
-	if schedule == 'piecewise':
-		decay_rate = 0.9
-		lr = K.get_value(model_gpu.optimizer.lr)
-		K.set_value(model_gpu.optimizer.lr, lr * decay_rate)
-		print("learning rate changed to {}".format(lr * decay_rate))
-	elif schedule == 'exponential':
-		lr = K.get_value(model_gpu.optimizer.lr)
-		decay_rate = 0.1 ** (i / 50000)
-		lr0 = 0.00005
-		K.set_value(model_gpu.optimizer.lr, lr0 * decay_rate)
-		print("decay rate changed to {}".format(decay_rate))
-		print("learning rate changed to {}".format(lr0 * decay_rate))
-	else:
-		print('No schedule chosen. Learning rate not updated')
-
-
+	lr = lr0 * decay**(i)
+	return lr
 
 # train model on image_stack and corrosponding labels
 def train_model(model=None, model_gpu=None, 
@@ -906,9 +902,12 @@ def save_model(model, model_path, filename):
 		# serialize weights to HDF5
 	model.save_weights(mfile_new)
 
-def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1)): 
+def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None): 
     optimal_thresholds = []
-    for index in range(1,len(data_dir.list_IDs)):
+    recall = []
+    precision = []
+    
+    for index in range(0,len(data_dir.list_IDs)):
         print('Analysing ROC on '+str(data_dir.list_IDs[index])+' data')
         y_pred_all = np.zeros(data_dir.image_dims[index])
         y_test_all = np.zeros(data_dir.image_dims[index])                       
@@ -926,8 +925,8 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                 y_test = np.zeros((batch_size, *volume_dims))
                 volume_dims_temp = list(volume_dims)
                 for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
-                    overspill = (n+1)*volume_dims[0]-(data_dir.image_dims[index][0]-z)
-                    if overspill>0 & overspill<volume_dims[0]:
+                    overspill = (n+1)*volume_dims[0]-(data_dir.image_dims[index][0]-z)+1
+                    if overspill>0 and overspill<volume_dims[0]:
                         # Reduce volume dimensions for batch with overflow data
                         volume_dims_temp[0] = volume_dims_temp[0] - overspill
                     elif overspill>=volume_dims[0]:
@@ -941,27 +940,48 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                 # Run prediction
                 X_test=X_test.reshape(*X_test.shape, 1)
                 y_pred=model.predict(X_test,verbose=0)
-                
-                # Remove padded slices in z axis if necessary (ie. if volume_dims_temp has been updated to remove overspill)
-                if volume_dims_temp[0] != volume_dims[0]:
-                    ibatch,iz = np.where(X_test!=0)[0:2] # find instances of non-zero values in X_test along axis 0 and 1
-                    y_test = y_test[0:max(ibatch)+1, 0:max(iz)+1, ...] # use this to index _test and y_pred
-                    y_pred = y_pred[0:max(ibatch)+1, 0:max(iz)+1, ...]
-                
-                # Add postive class only to stack
-                for n in range(batch_size):
-                    y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred[0], x:x+y_pred[1], y:y+y_pred[2]]=y_pred[n,...,1]
-                    y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test[0], x:x+y_test[1], y:y+y_test[2]]=y_test[n,...]
+               
+                # Add postive class to stack
+                for n in range(y_pred.shape[0]):
+                    # Remove padded slices in z axis if necessary (ie. if volume_dims_temp has been updated to remove overspill)
+                    if volume_dims_temp[0] != volume_dims[0]:
+                        iz = np.where(X_test[n,...]!=0)[0] # find instances of non-zero values in X_test along axis 1
+                        if len(iz)==0:
+                            continue #if no non-zero values, continue to next iteration
+                        y_test_crop = y_test[n, 0:max(iz)+1, ...] # use this to index y_test and y_pred
+                        y_pred_crop = y_pred[n, 0:max(iz)+1, ...]
+                        print(y_pred.shape)
+                        
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y:y+y_pred_crop.shape[2]]=y_pred_crop[...,1]
+                        y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test_crop.shape[0], x:x+y_test_crop.shape[1], y:y+y_test_crop.shape[2]]=y_test_crop
         
-        #calculate false/true positive rates and area under curve
+                    else:                
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred.shape[1], x:x+y_pred.shape[2], y:y+y_pred.shape[3]]=y_pred[n,...,1]
+                        y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test.shape[1], x:x+y_test.shape[2], y:y+y_test.shape[3]]=y_test[n,...]
+        
+              
+        # calculate false/true positive rates and area under curve
         fpr, tpr, thresholds = roc_curve(np.ravel(y_test_all), np.ravel(y_pred_all))
         area_under_curve = auc(fpr, tpr)
         optimal_idx = np.argmax(tpr - fpr)
-        print('Opimal threshold: {}'.format(thresholds[optimal_idx]))
+        print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
         optimal_thresholds.append(thresholds[optimal_idx])
+        print('Recall at optimal threshold: {}'.format(tpr[optimal_idx]))
+        recall.append(tpr[optimal_idx])
+        print('Precision at optimal threshold: {}'.format(1-fpr[optimal_idx]))
+        precision.append(1-fpr[optimal_idx])
         
+        # Save predicted segmentation      
+        if save_prediction:
+            # threshold using optimal threshold
+            y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+            y_pred_all[y_pred_all < optimal_thresholds[index]] = 0 
+            for im in range(y_pred_all.shape[0]):
+                save_image(y_pred_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'.tif')
+            print('Predicted segmentation saved to {}'.format(prediction_filename))
+                
         # Plot ROC 
-        plt.figure()
+        fig = plt.figure()
         plt.plot(fpr, tpr, color='darkorange',
                  lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
@@ -972,5 +992,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
         plt.show()
+        fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
 
-    return optimal_thresholds
+    return optimal_thresholds, recall, precision

@@ -47,7 +47,13 @@ class DataGenerator(Sequence):
 		list_IDs_temp = [] 
 		for i in range(self.batch_size):
        # Randomly select dataset ID       
-				ID_temp = random.randint(0,len(self.data_dir.list_IDs)-1)
+				ind = random.randint(0,100)
+				if ind<10:
+						ID_temp=2 #RSOM
+				elif ind<50:
+						ID_temp=0 #CT
+				else:
+						ID_temp=1 #HREM
 				list_IDs_temp.append(self.data_dir.list_IDs[ID_temp])
 
 		# Generate data
@@ -84,7 +90,6 @@ class DataGenerator(Sequence):
 
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
-    
     
 #from sklearn.metrics import roc_auc_score
 #from keras.callbacks import Callback
