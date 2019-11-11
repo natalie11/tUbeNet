@@ -88,6 +88,7 @@ class DataGenerator(Sequence):
 	    # Reshape to add depth of 1
 	    X = X.reshape(*X.shape, 1)
 
+		
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
 #from sklearn.metrics import roc_auc_score

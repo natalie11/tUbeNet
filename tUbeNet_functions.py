@@ -413,8 +413,9 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
 #    out = Dense(n,kernel_initializer=RandomNormal(stddev=0.02))(fl)
 #    out = Reshape((1,1,1,n))(out)
 #    out = Lambda(K.tile, arguments={'n':(1,d,h,w,1)})(out)
+    
 
-    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ6), activ5], axis=4)    
+    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same')(conv6), activ5], axis=4)    
     conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(up7)
     activ7 = LeakyReLU(alpha=0.2)(conv7)
     conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ7)

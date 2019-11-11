@@ -27,7 +27,7 @@ batch_size = 2		 	       	   # batch size for training CNN
 use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
 save_model = True		        	   # save model structure and weights? Yes=True, No=False
 fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
-class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
+class_weights = (1,5) 	        	# relative weighting of background to blood vessel classes
 binary_output = True 	           	# save as binary (True) or softmax (False)
 n_classes=2
 
@@ -44,8 +44,8 @@ y_test_filenames = os.listdir(os.path.join(val_path,"labels"))
 
 # Model
 model_path = 'F:\\Paired datasets'
-model_filename = '50epochs_1000steps_piecewiseLRdecay'
-updated_model_filename = '100epochs_1000steps_piecewiseLRdecay'
+model_filename = 'multimodal_GFV_50epochs_1000steps'
+updated_model_filename = ''
 output_filename = 'output'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -90,8 +90,9 @@ else:
 
 """ Train and save model """
 #TRAIN
-schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.5)
-history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch,callbacks=[LearningRateScheduler(schedule)])
+schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                callbacks=[LearningRateScheduler(schedule)])
 
 # SAVE MODEL
 if save_model:
