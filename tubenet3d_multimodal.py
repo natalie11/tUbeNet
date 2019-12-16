@@ -11,24 +11,22 @@ from functools import partial
 import numpy as np
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator
-from keras.callbacks import LearningRateScheduler
+from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import keras.backend as K
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
-downsample_factor = 1           	# factor by which images are downsampled in x and y dimensions 
-pad_array = 4096	           	   # size images are padded up to, to achieve n^2 x n^2 structure 
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 50			         	      # number of epoch for training CNN
+n_epochs = 100			         	      # number of epoch for training CNN
 steps_per_epoch = 1000		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	   # batch size for training CNN
 use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
 save_model = True		        	   # save model structure and weights? Yes=True, No=False
 fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
-class_weights = (1,5) 	        	# relative weighting of background to blood vessel classes
-binary_output = True 	           	# save as binary (True) or softmax (False)
+class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
+binary_output = False	           	# save as binary (True) or softmax (False)
 n_classes=2
 
 """ Paths and filenames """
@@ -44,8 +42,8 @@ y_test_filenames = os.listdir(os.path.join(val_path,"labels"))
 
 # Model
 model_path = 'F:\\Paired datasets'
-model_filename = 'multimodal_GFV_50epochs_1000steps'
-updated_model_filename = ''
+model_filename = ''
+updated_model_filename = 'multimodal_cropped_100epochs_1000steps'
 output_filename = 'output'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -64,9 +62,9 @@ for i in range(len(image_filenames)):
 
 dt=np.dtype([('list_ID', object), ('image_filename', object), ('label_filename', object), 
              ('image_dims', int,(3,)), ('data_type', object)])
-data = np.array([('CT', image_filenames[0], label_filenames[0], (512,1024,1024), 'float32'),
-              ('HREM', image_filenames[1], label_filenames[1], (312,4096,4096), 'float32'),
-              ('RSOM', image_filenames[2], label_filenames[2], (376,256,256), 'float32')], dtype=dt)
+data = np.array([('CT', image_filenames[0], label_filenames[0], (489,667,544), 'float32'),
+              ('HREM', image_filenames[1], label_filenames[1], (312,3071,2223), 'float32'),
+              ('RSOM', image_filenames[2], label_filenames[2], (376,221,191), 'float32')], dtype=dt)
 
 data_dir = DataDir(data['list_ID'], image_dims=data['image_dims'], image_filenames=data['image_filename'], 
                    label_filenames=data['label_filename'], data_type=data['data_type'])
@@ -91,8 +89,10 @@ else:
 """ Train and save model """
 #TRAIN
 schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+filepath = os.path.join(model_path,"multimodal_checkpoint")
+checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
 history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                callbacks=[LearningRateScheduler(schedule)])
+                                callbacks=[LearningRateScheduler(schedule), checkpoint])
 
 # SAVE MODEL
 if save_model:
@@ -104,9 +104,9 @@ for i in range(len(X_test_filenames)):
     X_test_filenames[i]=os.path.join(val_path,'data\\'+X_test_filenames[i])
     y_test_filenames[i]=os.path.join(val_path,'labels\\'+y_test_filenames[i])
     
-val_data = np.array([('CT', X_test_filenames[0], y_test_filenames[0], (170,1024,1024), 'float32'),
-              ('HREM', X_test_filenames[1], y_test_filenames[1], (104,4096,4096), 'float32'),
-              ('RSOM', X_test_filenames[2], y_test_filenames[2], (125,256,256), 'float32')], dtype=dt)
+val_data = np.array([('CT', X_test_filenames[0], y_test_filenames[0], (163,667,544), 'float32'),
+              ('HREM', X_test_filenames[1], y_test_filenames[1], (104,3071,2223), 'float32'),
+              ('RSOM', X_test_filenames[2], y_test_filenames[2], (125,221,191), 'float32')], dtype=dt)
 
 val_data_dir = DataDir(val_data['list_ID'], image_dims=val_data['image_dims'], image_filenames=val_data['image_filename'], 
                    label_filenames=val_data['label_filename'], data_type=val_data['data_type'])
