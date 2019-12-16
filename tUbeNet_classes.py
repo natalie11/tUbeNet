@@ -57,7 +57,7 @@ class DataGenerator(Sequence):
 				list_IDs_temp.append(self.data_dir.list_IDs[ID_temp])
 
 		# Generate data
-		print('list IDs: {}'.format(list_IDs_temp))
+		#print('list IDs: {}'.format(list_IDs_temp))
 		X, y = self.__data_generation(list_IDs_temp)
 
 		return X, y
@@ -74,17 +74,25 @@ class DataGenerator(Sequence):
 	    X = np.empty((self.batch_size, *self.volume_dims))
 	    y = np.empty((self.batch_size, *self.volume_dims))
 	    for i, ID_temp in enumerate(list_IDs_temp):
-	    	    index=np.where(self.data_dir.list_IDs == ID_temp)
-	    	    index=index[0][0]
-	    	    # Generate random coordinates within dataset
-	    	    coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0])),
-                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1])),
-                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]))])
-	    	    print('coords_temp: {}'.format(coords_temp)) 
-	    	    # Generate data sub-volume at coordinates, add to batch
-	    	    X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
+		    index=np.where(self.data_dir.list_IDs == ID_temp)
+		    index=index[0][0]
+                        
+		    vessels_present=False
+		    count=0
+		    while vessels_present==False:
+	    	     # Generate random coordinates within dataset
+	    	     count = count+1
+	    	     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
+                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
+                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
+	    	     #print('coords_temp: {}'.format(coords_temp)) 
+	    	     # Generate data sub-volume at coordinates, add to batch
+	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
                            image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
                            coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
+	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
+	    	        vessels_present=True
+                     
 	    # Reshape to add depth of 1
 	    X = X.reshape(*X.shape, 1)
 
