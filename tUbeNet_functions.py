@@ -362,48 +362,48 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     """
 
     inputs = Input((input_depth, input_height, input_width, 1))
-    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same')(inputs)
+    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(inputs)
     activ1 = LeakyReLU(alpha=0.2)(conv1)
-    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same')(activ1)
+    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(activ1)
     activ1 = LeakyReLU(alpha=0.2)(conv1)
     pool1 = MaxPooling3D(pool_size=(2, 2, 2))(activ1)
     drop1 = Dropout(0.25)(pool1)   
       
-    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same')(drop1)
+    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop1)
     activ2 = LeakyReLU(alpha=0.2)(conv2)
-    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same')(activ2)
+    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ2)
     activ2 = LeakyReLU(alpha=0.2)(conv2)
     pool2 = MaxPooling3D(pool_size=(2, 2, 2))(activ2)
     drop2 = Dropout(0.25)(pool2)
      
 
-    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same')(drop2)
+    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop2)
     activ3 = LeakyReLU(alpha=0.2)(conv3)
-    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same')(activ3)
+    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ3)
     activ3 = LeakyReLU(alpha=0.2)(conv3)
     pool3 = MaxPooling3D(pool_size=(2, 2, 2))(activ3)
     drop3 = Dropout(0.5)(pool3)
     
 
-    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same')(drop3)
+    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
     activ4 = LeakyReLU(alpha=0.2)(conv4)
-    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same')(activ4)
+    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ4)
     activ4 = LeakyReLU(alpha=0.2)(conv4)			
     pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
     drop4 = Dropout(0.5)(pool4)
     
   
-    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(drop4)
+    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop4)
     activ5 = LeakyReLU(alpha=0.2)(conv5)
-    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ5)
+    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ5)
     activ5 = LeakyReLU(alpha=0.2)(conv5)
     pool5 = MaxPooling3D(pool_size=(2, 2, 2))(activ5)    
     drop5 = Dropout(0.5)(pool5)
     
       
-    conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same')(drop5)
+    conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop5)
     activ6 = LeakyReLU(alpha=0.2)(conv6)
-    conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ6)
+    conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
     activ6 = LeakyReLU(alpha=0.2)(conv6)
     
 #    # Global Feature Vector
@@ -415,35 +415,35 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
 #    out = Lambda(K.tile, arguments={'n':(1,d,h,w,1)})(out)
     
 
-    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same')(conv6), activ5], axis=4)    
-    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(up7)
+    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(conv6), activ5], axis=4)    
+    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
     activ7 = LeakyReLU(alpha=0.2)(conv7)
-    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same')(activ7)
+    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ7)
     activ7 = LeakyReLU(alpha=0.2)(conv7)   
 
-    up8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ7), activ4], axis=4)
-    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same')(up8)
+    up8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ7), activ4], axis=4)
+    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up8)
     activ8 = LeakyReLU(alpha=0.2)(conv8)
-    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same')(activ8)
+    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ8)
     activ8 = LeakyReLU(alpha=0.2)(conv8)
     
 
-    up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ8), activ3], axis=4)
-    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same')(up9)
+    up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ8), activ3], axis=4)
+    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up9)
     activ9 = LeakyReLU(alpha=0.2)(conv9)
-    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same')(activ9)
+    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ9)
     activ9 = LeakyReLU(alpha=0.2)(conv9)
 
-    up10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ9), activ2], axis=4)
-    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same')(up10)
+    up10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ9), activ2], axis=4)
+    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up10)
     activ10 = LeakyReLU(alpha=0.2)(conv10)
-    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same')(activ10)
+    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ10)
     activ10 = LeakyReLU(alpha=0.2)(conv10)
 
-    up11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same')(activ10), activ1], axis=4)
-    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same')(up11)
+    up11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ10), activ1], axis=4)
+    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up11)
     activ11 = LeakyReLU(alpha=0.2)(conv11)
-    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same')(activ11)    
+    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ11)    
     activ11 = LeakyReLU(alpha=0.2)(conv11)
     
     conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
@@ -779,7 +779,7 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 
 
 
-def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=1024):
+def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=None):
 	"""# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -807,14 +807,15 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	
 	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
 	# Set the images to 1024x1024 (2^10) arrays
-	print('Padding array')
-	xpad=(pad_array-img.shape[1])//2
-	ypad=(pad_array-img.shape[2])//2
+	if pad_array is not None:
+		print('Padding array')
+		xpad=(pad_array-img.shape[1])//2
+		ypad=(pad_array-img.shape[2])//2
 	
-	img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
-	img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
-	del img
-	print('Shape of padded image array: {}'.format(img_pad.shape))
+		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
+		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
+		img=img_pad
+		print('Shape of padded image array: {}'.format(img_pad.shape))
 	
 	#Repeat for labels is present
 	if label_filename is not None:
@@ -831,17 +832,18 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
 		
 		# Pad
-		print('Padding array')
-		seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
-		seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
+		if pad_array is not None:
+		  print('Padding array')
+		  seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
+		  seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
+		  seg=seg_pad
 		
 		# Find the number of unique classes in segmented training set
-		classes = np.unique(seg_pad)
-		del seg
+		classes = np.unique(seg)
 		
-		return img_pad, seg_pad, classes
+		return img, seg, classes
 	
-	return img_pad
+	return img
 
 
 def load_saved_model(model_path=None, filename=None,
@@ -878,7 +880,6 @@ def load_saved_model(model_path=None, filename=None,
                                  learning_rate=learning_rate, loss=loss, metrics=metrics)
 	else:
 		model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-		model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
 	print('Template model structure')
 	model.summary()
 	print('GPU model structure')
