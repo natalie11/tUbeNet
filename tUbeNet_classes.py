@@ -50,7 +50,7 @@ class DataGenerator(Sequence):
 				ind = random.randint(0,100)
 				if ind<10:
 						ID_temp=2 #RSOM
-				elif ind<50:
+				elif ind<40:
 						ID_temp=0 #CT
 				else:
 						ID_temp=1 #HREM
