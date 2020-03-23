@@ -12,7 +12,6 @@ import numpy as np
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
-import keras.backend as K
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -22,7 +21,7 @@ volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in f
 n_epochs = 100			         	      # number of1 epoch for training CNN
 steps_per_epoch = 1000		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	   # batch size for training CNN
-use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
+use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
 save_model = True		        	   # save model structure and weights? Yes=True, No=False
 fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
@@ -42,8 +41,8 @@ y_test_filenames = os.listdir(os.path.join(val_path,"labels"))
 
 # Model
 model_path = 'F:\\Paired datasets'
-model_filename = ''
-updated_model_filename = 'multimodal_cropped_100epochs_1000steps'
+model_filename = 'multimodal_cropped_100epochs_1000steps'
+updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Feb2'
 output_filename = 'output'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

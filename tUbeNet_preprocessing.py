@@ -16,16 +16,16 @@ import tUbeNet_functions as tube
 # Paramters
 downsample_factor = 1               	# factor by which images are downsampled in x and y dimensions 
 pad_array = 256	           	       # size images are padded up to, to achieve n^2 x n^2 structure 
-val_fraction = 0.00                   # fraction of data to use for validation  
+val_fraction = 0.25                   # fraction of data to use for validation  
 
 """ Paths and filenames """
 path = "F:\\Paired datasets"
-image_filename = os.path.join(path,"image_data\\GFP_2044_2459.tif")
-label_filename = os.path.join(path,"image_labels\\Monica_seg_binary_2044_2459.tif")
+image_filename = os.path.join(path,"image_data\\filtered_dataset_crop.tif")
+label_filename = os.path.join(path,"image_labels\\filtered_dataset_Labels.tif")
 
 # Validation data
 output_path = "F:\\Paired datasets"
-output_name = "Retinal_angio"
+output_name = "RSOM"
 train_folder = os.path.join(output_path,"train")
 test_folder = os.path.join(output_path,"test")
 
