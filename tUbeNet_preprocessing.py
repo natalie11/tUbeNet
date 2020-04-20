@@ -98,15 +98,15 @@ if val_fraction is not None:
     np.save(output_file_train_data,train_data)
     np.save(output_file_train_labels,train_labels)
 
-    header_train = DataHeader(modality=modality, image_dims=train_data.shape, image_filenames=output_file_train_data, 
-                   label_filenames=output_file_train_labels)
+    header_train = DataHeader(modality=modality, image_dims=train_data.shape, image_filename=output_file_train_data, 
+                   label_filename=output_file_train_labels)
     header_train.save(str(output_name+'_train_header'))
     
     np.save(output_file_test_data,test_data)
     np.save(output_file_test_labels,test_labels)
     
-    header_test = DataHeader(modality=modality, image_dims=test_data.shape, image_filenames=output_file_test_data, 
-                   label_filenames=output_file_test_labels)
+    header_test = DataHeader(modality=modality, image_dims=test_data.shape, image_filename=output_file_test_data, 
+                   label_filename=output_file_test_labels)
     header_test.save(str(output_name+'_test_header'))
     
 else:
@@ -115,6 +115,6 @@ else:
     np.save(output_file_data, data)
     np.save(output_file_labels, labels)
 
-    header = DataHeader(modality=modality, image_dims=data.shape, image_filenames=output_file_data, 
-                   label_filenames=output_file_labels)
+    header = DataHeader(modality=modality, image_dims=data.shape, image_filename=output_file_data, 
+                   label_filename=output_file_labels)
     header.save(str(output_name+'_header'))

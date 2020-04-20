@@ -15,16 +15,16 @@ from keras.utils import Sequence, to_categorical #np_utils
 
 # set backend as tensor flow
 from keras import backend as K
-K.set_image_dim_ordering('tf')
+K.common.set_image_dim_ordering('tf')
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
-    def __init__(self, modality=None, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None):
+    def __init__(self, modality=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
 	    'Initialization' 
 	    self.modality = modality
 	    self.image_dims = image_dims
-	    self.image_filenames = image_filenames
-	    self.label_filenames = label_filenames
+	    self.image_filename = image_filename
+	    self.label_filename = label_filename
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
