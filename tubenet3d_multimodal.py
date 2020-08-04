@@ -29,7 +29,9 @@ parser.add_argument("--steps_per_epoch", help="number of steps per training epoc
 parser.add_argument("--batch_size", help="batch size (default %(default)s)",
                     type=int, default=2)
 parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
-                    type=int, nargs=2, default=(1, 7))
+                    type=int, default=None)
+parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
+                    type=int, default=None)
 parser.add_argument("--n_classes", help="number of classes (NOTE: model currently only supports binary classicifaction, ie n_classes=2)",
                     type=int, default=2)
 parser.add_argument("--binary_output", help="presence of this flag indicates a binary output is desired, as opposed to softmax",
@@ -59,6 +61,7 @@ class_weights = args.class_weights
 n_classes= args.n_classes
 binary_output = args.binary_output        	
 fine_tuning = args.fine_tuning
+dataset_weighting = arg.dataset_weighting
 
 # Training data
 data_path = args.data_dir
@@ -113,24 +116,6 @@ if args.model_input is not None:
 # create partial for  to pass to complier
 custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
 
-# callbacks              
-#time_callback = tube.TimeHistory()		      
-#stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
-
-#""" Create data Directory """ OLD CODE!!
-#for i in range(len(image_filenames)):
-#    image_filenames[i]=os.path.join(path,'data\\'+image_filenames[i])
-#    label_filenames[i]=os.path.join(path,'labels\\'+label_filenames[i])
-#
-#dt=np.dtype([('list_ID', object), ('image_filename', object), ('label_filename', object), 
-#             ('image_dims', int,(3,)), ('data_type', object)])
-#data = np.array([('CT', image_filenames[0], label_filenames[0], (489,667,544), 'float32'),
-#              ('HREM', image_filenames[1], label_filenames[1], (312,3071,2223), 'float32'),
-#              ('RSOM', image_filenames[2], label_filenames[2], (376,221,191), 'float32')], dtype=dt)
-#
-#data_dir = DataDir(data['list_ID'], image_dims=data['image_dims'], image_filenames=data['image_filename'], 
-#                   label_filenames=data['label_filename'], data_type=data['data_type'])
- 
 """ Create data Directory """  
 # Import data header
 header_filenames=os.listdir(data_path)
@@ -159,7 +144,8 @@ for header in headers:
 params = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
-	       'shuffle': False}
+	       'shuffle': False,
+           'dataset_weighting': dataset_weighting}
 
 training_generator=DataGenerator(data_dir, **params)
 

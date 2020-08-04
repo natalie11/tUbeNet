@@ -14,15 +14,13 @@ import math
 # import required objects and fuctions from keras
 from keras.models import Model, model_from_json #load_model
 # CNN layers
-from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout, AveragePooling3D, Reshape, Flatten, Dense, Lambda
+from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
 from keras.utils import multi_gpu_model, to_categorical #np_utils
 # opimiser
 from keras.optimizers import Adam
-# initiliser
-from keras.initializers import RandomNormal
 # checkpoint
-from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
+from keras.callbacks import Callback#, ModelCheckpoint, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch
 import time
 # import tensor flow
@@ -270,8 +268,11 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 
 def weighted_crossentropy(y_true, y_pred, weights):
 	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+	if weights is None: 
+		return K.categorical_crossentropy(y_true, y_pred,) # No weighting
+	else: 
+		weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
+		return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
 
 """Custom metrics"""
@@ -513,7 +514,8 @@ def piecewise_schedule(i, lr0, decay):
 	lr = lr0 * decay**(i)
 	return lr
 
-# train model on image_stack and corrosponding labels
+# train model on image_stack and corrosponding labels 
+# OLD FUNCTION - use fit_generator instead
 def train_model(model=None, model_gpu=None, 
                 image_stack=None, labels=None, 
                 image_test=None, labels_test=None, 
@@ -561,10 +563,6 @@ def train_model(model=None, model_gpu=None,
 			    vessels_present = True
 		    else:
 			    del vol_batch, labels_batch
-			    
-	    # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
-	    if i % 5000 == 0 and i != 0:
-		    setLR(model_gpu, i, 'piecewise')
           
 	    # fit model
 	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
@@ -838,6 +836,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		  labels=block_reduce(labels, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
 		  
 		# Normalise 
+        # NB: ONLY MAKES SENSE WITH TWO LABELS (0/1), NO NEED WITH OHE????
 		print('Rescaling data between 0 and 1')
 		labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
 		
@@ -855,6 +854,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		if labels.dtype!='int8': labels = labels.astype('int8')
         
 		# Crop data to remove borders containing only background
+        # NB: CROP ONLY WORKS IF BACKGROUND = 0
 		if not no_crop:
 		  iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
 		  labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index y_test and y_pred
