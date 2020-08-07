@@ -10,8 +10,14 @@ import numpy as np
 import tUbeNet_functions as tube
 import random
 import pickle
-# kera utils
+import os
+join = os.path.join
+import datetime
+import json
+import io
 from keras.utils import Sequence, to_categorical #np_utils
+from matplotlib import pyplot as plt
+import tensorflow as tf
 
 # set backend as tensor flow
 from keras import backend as K
@@ -103,6 +109,140 @@ class DataGenerator(Sequence):
 
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
+    
+        
+class MetricDisplayCallback(tf.keras.callbacks.Callback):
+
+    def __init__(self,log_dir=None):
+        super().__init__()
+        self.log_dir = log_dir # directory where logs are saved
+        self.file_writer = tf.summary.create_file_writer(log_dir)
+
+    def on_epoch_end(self, epoch, logs={}):
+        # have tf log custom metrics and save to file
+        with self.file_writer.as_default():
+            for k,v in zip(logs.keys(),logs.values()):
+                # iterate through monitored metrics (k) and values (v)
+                tf.summary.scalar(k, v, step=epoch)
+        
+class ImageDisplayCallback(tf.keras.callbacks.Callback):
+
+    def __init__(self,generator,validation=None,log_dir=None,index=0):
+        super().__init__()
+        self.log_dir = log_dir
+        self.x = None
+        self.y = None
+        self.pred = None
+        self.data_generator = generator
+        self.validation_generator = validation
+        self.index = index
+        self.file_writer = tf.summary.create_file_writer(log_dir)
+
+    def on_epoch_end(self, epoch, logs={}, to_buffer=True):
+
+        self.x, self.y = self.data_generator.__getitem__(self.index,simulated=True)
+        self.pred = self.model.predict(self.x)
+        self.x_real, self.y_real = self.data_generator.__getitem__(self.index,simulated=False)
+        self.pred_real = self.model.predict(self.x_real)
+        
+        sz = self.x.shape
+ 
+        # Recon prediction
+        
+        ind = int(sz[1]/2.)
+
+        im = self.x[0,ind,:,:,0].squeeze()        
+        pred_im = np.argmax(self.pred[0,ind,:,:,:],axis=-1)
+        pred_imTrue = np.argmax(self.y[0,ind,:,:,:],axis=-1)
+        
+        im_real = self.x_real[0,ind,:,:,0].squeeze()        
+        pred_im_real = np.argmax(self.pred_real[0,ind,:,:,:],axis=-1)
+        pred_imTrue_real = np.argmax(self.y_real[0,ind,:,:,:],axis=-1)
+        
+        # Plot
+        if self.validation_generator is not None:
+            nval = len(self.validation_generator.x_files)
+        else:
+            nval = 0
+        columns = 3
+        rows = 2 + nval
+
+        fsz = 5
+        fig = plt.figure(figsize=(fsz*columns,fsz*rows))
+        
+        i = 1
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(im)
+        ax.title.set_text('Image')
+        plt.axis("off")
+
+        i = 2
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(pred_im)
+        ax.title.set_text('Predicted labels')
+        plt.axis("off")
+
+        i = 3
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(pred_imTrue)
+        ax.title.set_text('Labels')
+        plt.axis("off")
+        
+        i = 4
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(im_real)
+        ax.title.set_text('Image')
+        plt.axis("off")
+
+        i = 5
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(pred_im_real)
+        ax.title.set_text('Predicted labels')
+        plt.axis("off")
+
+        i = 6
+        ax = fig.add_subplot(rows, columns, i)
+        plt.imshow(pred_imTrue_real)
+        ax.title.set_text('Labels')
+        plt.axis("off")
+        
+        if self.validation_generator is not None:
+        # Validation
+            for j in range(nval):
+                x_val = self.validation_generator.__getitem__(j)
+                pred_val = self.model.predict(x_val)
+                im_val = x_val[0,ind,:,:,0].squeeze()        
+                pred_val = np.argmax(pred_val[0,ind,:,:,:],axis=-1)
+                
+                i += 1
+                ax = fig.add_subplot(rows, columns, i)
+                plt.imshow(im_val)
+                name = os.path.basename(self.validation_generator.x_files[j])
+                ax.title.set_text(name)
+                plt.axis("off")
+
+                i += 1
+                ax = fig.add_subplot(rows, columns, i)
+                plt.imshow(pred_val)
+                ax.title.set_text('Predicted labels')
+                plt.axis("off")
+                
+                i += 1 # Skip ground truth plot
+        
+        if to_buffer:
+            buf = io.BytesIO()
+            plt.savefig(buf,format='png')
+            #plt.savefig('output.png')
+            plt.close(fig)
+            buf.seek(0)
+            image = tf.image.decode_png(buf.getvalue(),channels=4) # #buf.getvalue()
+            image = tf.expand_dims(image,0)
+            buf.close()
+ 
+            with self.file_writer.as_default():
+                tf.summary.image("Images...",image,step=epoch)
+        else:
+            plt.show()
     
 #from sklearn.metrics import roc_auc_score
 #from keras.callbacks import Callback

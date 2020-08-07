@@ -14,6 +14,7 @@ from tUbeNet_classes import DataDir, DataGenerator, DataHeader
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import argparse
 import pickle
+import datetime.datetime
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -45,9 +46,9 @@ parser.add_argument("--validation_dir", help="path to validation data directory 
                     type=str)
 parser.add_argument("--output_dir", help="path to folder in which output images will be saved",
                     type=str)
-parser.add_argument("--model_input", help="if using a previously saved model, provide the file path",
+parser.add_argument("--model_file", help="if using a previously saved model, provide the file path",
                     type=str)
-parser.add_argument("--model_output", help="path to folder in which trained model will be saved",
+parser.add_argument("--model_output_dir", help="path to folder in which trained model will be saved",
                     type=str, required=True)
 
 args=parser.parser_args()
@@ -61,7 +62,7 @@ class_weights = args.class_weights
 n_classes= args.n_classes
 binary_output = args.binary_output        	
 fine_tuning = args.fine_tuning
-dataset_weighting = arg.dataset_weighting
+dataset_weighting = args.dataset_weighting
 
 # Training data
 data_path = args.data_dir
@@ -75,10 +76,10 @@ if args.validation_dir:
 output_path = args.output_dir
 
 # Model
-model_output = args.model_output
-if args.model_input is not None:
+model_output_dir = args.model_output_dir
+if args.model_file is not None:
     use_saved_model= True
-    model_input = args.model_input
+    model_file = args.model_file
 
 
 
@@ -151,7 +152,7 @@ training_generator=DataGenerator(data_dir, **params)
 
 """ Load or Build Model """
 if use_saved_model:
-    model_gpu, model = tube.load_saved_model(filename=model_input,
+    model_gpu, model = tube.load_saved_model(filename=model_file,
                          learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
@@ -160,30 +161,52 @@ else:
 
 """ Train and save model """
 #TRAIN
+date = datetime.datetime.now()
 schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
-filepath = os.path.join(model_output,"multimodal_checkpoint")
+filepath = os.path.join(model_output_dir,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
 checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
 history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                 callbacks=[LearningRateScheduler(schedule), checkpoint])
 
 # SAVE MODEL
-tube.save_model(model, model_output, updated_model_filename)
+model_filename = "{}_model".format(date.strftime("%d%m%y"))
+tube.save_model(model, model_output_dir, model_filename)
 
 """ Plot ROC """
 # Create directory of validation data
-for i in range(len(X_test_filenames)):
-    X_test_filenames[i]=os.path.join(val_path,'data\\'+X_test_filenames[i])
-    y_test_filenames[i]=os.path.join(val_path,'labels\\'+y_test_filenames[i])
+if args.validation_dir:
+    # Import data header
+    header_filenames=os.listdir(val_path)
+    headers = []
+    for file in header_filenames: #Iterate through header files
+        file=os.path.join(val_path,file)
+        with open(file, "rb") as f:
+            data_header = pickle.load(f) # Unpickle DataHeader object
+        headers.append(data_header) # Add to list of headers
+        
+    # Create empty data directory    
+    val_dir = DataDir([], image_dims=[], 
+                       image_filenames=[], 
+                       label_filenames=[], 
+                       data_type=[])
     
-val_data = np.array([('CT', X_test_filenames[0], y_test_filenames[0], (163,667,544), 'float32'),
-              ('HREM', X_test_filenames[1], y_test_filenames[1], (104,3071,2223), 'float32'),
-              ('RSOM', X_test_filenames[2], y_test_filenames[2], (125,221,191), 'float32')], dtype=dt)
-
-val_data_dir = DataDir(val_data['list_ID'], image_dims=val_data['image_dims'], image_filenames=val_data['image_filename'], 
-                   label_filenames=val_data['label_filename'], data_type=val_data['data_type'])
-
-
-optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_data_dir, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=True, prediction_filename='F:\Paired datasets\prediction')
+    # Fill directory from headers
+    for header in headers:
+        val_dir.list_IDs.append(header.modality)
+        val_dir.image_dims.append(header.image_dims)
+        val_dir.image_filenames.append(header.image_filename)
+        val_dir.label_filenames.append(header.lable_filename)
+        val_dir.data_type.append('float32')
+    
+    """ Create Data Generator """
+    params = {'batch_size': batch_size,
+              'volume_dims': volume_dims, 
+              'n_classes': n_classes,
+    	       'shuffle': False,
+               'dataset_weighting': dataset_weighting}
+    
+    val_generator=DataGenerator(val_dir, **params)
+    optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=True, prediction_filename='F:\Paired datasets\prediction')
 
 #""" Predict Segmentation """
 #whole_img_pad = tube.data_preprocessing(image_filename=whole_img_filename, downsample_factor=downsample_factor, pad_array=pad_array)
