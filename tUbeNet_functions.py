@@ -806,7 +806,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	  
 	# Normalise 
 	print('Rescaling data between 0 and 1')
-	data = (data-np.amin(data))/(np.amax(data)-np.amin(data)) # Rescale between 0 and 1
+	#data = (data-np.amin(data))/(np.amax(data)-np.amin(data)) # Rescale between 0 and 1
 	
 	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
 	# Set the images to 1024x1024 (2^10) arrays
@@ -838,8 +838,8 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		# Normalise 
         # NB: ONLY MAKES SENSE WITH TWO LABELS (0/1), NO NEED WITH OHE????
 		print('Rescaling data between 0 and 1')
-		labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
-		
+		#labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
+		print('Labels shape: {}'.format(labels.shape))
 		# Pad
 		if pad_array is not None:
 		  print('Padding array')
@@ -856,10 +856,10 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		# Crop data to remove borders containing only background, unless no_crop specified
 		# NB: CROP ONLY WORKS IF BACKGROUND = 0
 		if not no_crop:
-		  iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
+		  iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in labels along axis 1
 		  pad = 20 # padding 
 		  # Index data and labels using min/max coordinates of none-background pixels, plus padding 
-		  labels = labels[min(iz)-pad:max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad] 
+		  labels = labels[min(iz):max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad] 
 		  data = data[min(iz)-pad:max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad]
 		  print('Data cropped to shape: {}'.format(data.shape))
 		

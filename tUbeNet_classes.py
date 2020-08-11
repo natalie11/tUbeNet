@@ -64,7 +64,7 @@ class DataGenerator(Sequence):
 	def __getitem__(self, index):
 	    'Generate one batch of data'
 	    # random.choices only available in python 3.6
-	    # randomly generate list of ID for batch, weighted accordin to given 'dataset_weighting' if not None
+	    # randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
 	    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 	    
 	    # Generate data
@@ -140,32 +140,21 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs={}, to_buffer=True):
 
-        self.x, self.y = self.data_generator.__getitem__(self.index,simulated=True)
+        self.x, self.y = self.data_generator.__getitem__(self.index)
         self.pred = self.model.predict(self.x)
-        self.x_real, self.y_real = self.data_generator.__getitem__(self.index,simulated=False)
-        self.pred_real = self.model.predict(self.x_real)
         
         sz = self.x.shape
  
-        # Recon prediction
-        
+        # Take centre slice
         ind = int(sz[1]/2.)
 
         im = self.x[0,ind,:,:,0].squeeze()        
         pred_im = np.argmax(self.pred[0,ind,:,:,:],axis=-1)
         pred_imTrue = np.argmax(self.y[0,ind,:,:,:],axis=-1)
         
-        im_real = self.x_real[0,ind,:,:,0].squeeze()        
-        pred_im_real = np.argmax(self.pred_real[0,ind,:,:,:],axis=-1)
-        pred_imTrue_real = np.argmax(self.y_real[0,ind,:,:,:],axis=-1)
-        
         # Plot
-        if self.validation_generator is not None:
-            nval = len(self.validation_generator.x_files)
-        else:
-            nval = 0
         columns = 3
-        rows = 2 + nval
+        rows = 1
 
         fsz = 5
         fig = plt.figure(figsize=(fsz*columns,fsz*rows))
@@ -187,48 +176,7 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         plt.imshow(pred_imTrue)
         ax.title.set_text('Labels')
         plt.axis("off")
-        
-        i = 4
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(im_real)
-        ax.title.set_text('Image')
-        plt.axis("off")
 
-        i = 5
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(pred_im_real)
-        ax.title.set_text('Predicted labels')
-        plt.axis("off")
-
-        i = 6
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(pred_imTrue_real)
-        ax.title.set_text('Labels')
-        plt.axis("off")
-        
-        if self.validation_generator is not None:
-        # Validation
-            for j in range(nval):
-                x_val = self.validation_generator.__getitem__(j)
-                pred_val = self.model.predict(x_val)
-                im_val = x_val[0,ind,:,:,0].squeeze()        
-                pred_val = np.argmax(pred_val[0,ind,:,:,:],axis=-1)
-                
-                i += 1
-                ax = fig.add_subplot(rows, columns, i)
-                plt.imshow(im_val)
-                name = os.path.basename(self.validation_generator.x_files[j])
-                ax.title.set_text(name)
-                plt.axis("off")
-
-                i += 1
-                ax = fig.add_subplot(rows, columns, i)
-                plt.imshow(pred_val)
-                ax.title.set_text('Predicted labels')
-                plt.axis("off")
-                
-                i += 1 # Skip ground truth plot
-        
         if to_buffer:
             buf = io.BytesIO()
             plt.savefig(buf,format='png')
