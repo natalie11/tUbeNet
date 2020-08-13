@@ -66,14 +66,12 @@ class DataGenerator(Sequence):
 	    # random.choices only available in python 3.6
 	    # randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
 	    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
-	    
 	    # Generate data
-	    #print('list IDs: {}'.format(list_IDs_temp))
 	    X, y = self.__data_generation(list_IDs_temp)
 
 	    return X, y
 	    
-	def on_epoch_end(self):
+	def on_epoch_end(self): #I don't think this is neccessary
 	    'Updates indexes after each epoch'
 	    self.indexes = np.arange(len(self.data_dir.list_IDs))
 	    if self.shuffle == True:
@@ -85,8 +83,8 @@ class DataGenerator(Sequence):
 	    X = np.empty((self.batch_size, *self.volume_dims))
 	    y = np.empty((self.batch_size, *self.volume_dims))
 	    for i, ID_temp in enumerate(list_IDs_temp):
-		    index=np.where(self.data_dir.list_IDs == ID_temp)
-		    index=index[0][0]
+		    # Find index for data o be trained on 
+		    index=[k for k in range(len(self.data_dir.list_IDs)) if self.data_dir.list_IDs[k] == ID_temp][0] 
                         
 		    vessels_present=False
 		    count=0
