@@ -125,7 +125,7 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
         
 class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
-    def __init__(self,generator,validation=None,log_dir=None,index=0):
+    def __init__(self,generator,log_dir=None,index=0):
         super().__init__()
         self.log_dir = log_dir
         self.x = None
