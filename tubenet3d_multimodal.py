@@ -118,6 +118,8 @@ else:
 
 # create partial for  to pass to complier
 custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
+custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+custom_loss.__module__ = tube.weighted_crossentropy.__module__
 
 """ Create data Directory """  
 # Import data header
@@ -218,7 +220,7 @@ if args.validation_dir:
                'dataset_weighting': dataset_weighting}
     
     val_generator=DataGenerator(val_dir, **params)
-    optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=True, prediction_filename='F:\Paired datasets\prediction')
+    optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_path)
 
 #""" Predict Segmentation """
 #whole_img_pad = tube.data_preprocessing(image_filename=whole_img_filename, downsample_factor=downsample_factor, pad_array=pad_array)
