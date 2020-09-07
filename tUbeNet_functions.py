@@ -1014,7 +1014,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.ylabel('True Positive Rate')
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
-        plt.show()
         fig.savefig(prediction_filename+'/ROC_'+str(data_dir.list_IDs[index])+'.png')
 
     return optimal_thresholds, recall, precision

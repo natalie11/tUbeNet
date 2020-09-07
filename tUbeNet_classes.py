@@ -182,7 +182,7 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         if to_buffer:
             buf = io.BytesIO()
             plt.savefig(buf,format='png')
-            #plt.savefig('output.png')
+            plt.savefig('epoch'+str(epoch)+'_output.png')
             plt.close(fig)
             buf.seek(0)
             image = tf.image.decode_png(buf.getvalue(),channels=4) # #buf.getvalue()
