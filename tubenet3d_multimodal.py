@@ -10,11 +10,17 @@ import os
 from functools import partial
 import numpy as np
 import tUbeNet_functions as tube
+<<<<<<< HEAD
 from tUbeNet_classes import DataDir, DataGenerator, DataHeader, ImageDisplayCallback, MetricDisplayCallback
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 import argparse
 import pickle
 import datetime
+=======
+from tUbeNet_classes import DataDir, DataGenerator
+from keras.callbacks import LearningRateScheduler, ModelCheckpoint
+import keras.backend as K
+>>>>>>> parent of 921f8a1... Fixed functions to stop weird error
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -54,6 +60,7 @@ parser.add_argument("--model_output_dir", help="path to folder in which trained 
 args=parser.parse_args()
 
 # Paramters
+<<<<<<< HEAD
 volume_dims = args.volume_dims   	 	
 n_epochs = args.n_epochs		     
 steps_per_epoch = args.steps_per_epoch	      
@@ -64,6 +71,20 @@ binary_output = args.binary_output
 fine_tuning = args.fine_tuning
 dataset_weighting = args.dataset_weights
 
+=======
+volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
+n_epochs = 100			         	      # number of1 epoch for training CNN
+steps_per_epoch = 1000		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+batch_size = 2		 	       	   # batch size for training CNN
+use_saved_model = True	        	# use saved model structure and weights? Yes=True, No=False
+save_model = True		        	   # save model structure and weights? Yes=True, No=False
+fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
+class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
+binary_output = False	           	# save as binary (True) or softmax (False)
+n_classes=2
+
+""" Paths and filenames """
+>>>>>>> parent of 921f8a1... Fixed functions to stop weird error
 # Training data
 data_path = args.data_dir
 
@@ -76,6 +97,7 @@ if args.validation_dir:
 output_path = args.output_dir
 
 # Model
+<<<<<<< HEAD
 model_output_dir = args.model_output_dir
 if args.model_file is not None:
     use_saved_model= True
@@ -113,6 +135,12 @@ else:
 #model_filename = 'multimodal_cropped_100epochs_1000steps'
 #updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Feb2'
 #output_filename = 'output'
+=======
+model_path = 'F:\\Paired datasets'
+model_filename = ''
+updated_model_filename = 'multimodal_cropped_100epochs_1000steps'
+output_filename = 'output'
+>>>>>>> parent of 921f8a1... Fixed functions to stop weird error
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 

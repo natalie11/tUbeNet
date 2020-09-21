@@ -25,7 +25,6 @@ from keras.callbacks import Callback#, ModelCheckpoint, EarlyStopping, LearningR
 import time
 # import tensor flow
 import tensorflow as tf
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing AVX AVX2
 # set backend as tensor flow
 from tensorflow.keras import backend as K
 K.set_image_data_format('channels_last')
@@ -895,7 +894,7 @@ def load_saved_model(model_path=None, filename=None,
 	# load model from json
 	model_json = json_file.read()
 	json_file.close()
-	model = model_from_json(model_json, custom_objects={'tf':tf})
+	model = model_from_json(model_json)
 	# load weights into new model
 	model.load_weights(mfile)
 	if fine_tuning:
@@ -903,7 +902,6 @@ def load_saved_model(model_path=None, filename=None,
                                  learning_rate=learning_rate, loss=loss, metrics=metrics)
 	else:
 		model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-		model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
 	print('Template model structure')
 	model.summary()
 	print('GPU model structure')
