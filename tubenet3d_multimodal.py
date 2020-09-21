@@ -20,9 +20,6 @@ import datetime
 from tUbeNet_classes import DataDir, DataGenerator
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import keras.backend as K
-<<<<<<< HEAD
->>>>>>> parent of 921f8a1... Fixed functions to stop weird error
-=======
 >>>>>>> parent of 921f8a1... Fixed functions to stop weird error
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
