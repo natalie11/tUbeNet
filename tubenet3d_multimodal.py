@@ -197,7 +197,7 @@ if args.validation_dir:
         val_dir.list_IDs.append(header.modality)
         val_dir.image_dims.append(header.image_dims)
         val_dir.image_filenames.append(header.image_filename)
-        val_dir.label_filenames.append(header.label_filename)
+        val_dir.label_filenames.append(header.lable_filename)
         val_dir.data_type.append('float32')
     
     """ Create Data Generator """

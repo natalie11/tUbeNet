@@ -829,16 +829,16 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	if label_filename is not None:
 		print('Loading labels from '+str(label_filename))
 		labels=io.imread(label_filename)
-
+	
 		# Downsampling
 		if downsample_factor >1:
 		  print('Downsampling by a factor of {}'.format(downsample_factor))
 		  labels=block_reduce(labels, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
 		  
 		# Normalise 
-		# NO NEED WITH OHE???? - required to allow conversion to int8 if values outside int8 range
+        # NB: ONLY MAKES SENSE WITH TWO LABELS (0/1), NO NEED WITH OHE????
 		print('Rescaling data between 0 and 1')
-		labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
+		#labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
 		print('Labels shape: {}'.format(labels.shape))
 		# Pad
 		if pad_array is not None:
@@ -852,13 +852,19 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		
 		# Set data type
 		if labels.dtype!='int8': labels = labels.astype('int8')
+		print(max(labels))
+		print(np.count_nonzero(labels))
 		# Crop data to remove borders containing only background, unless no_crop specified
 		# NB: CROP ONLY WORKS IF BACKGROUND = 0
 		if not no_crop:
 		  iz, ix, iy = np.nonzero(labels) # find instances of non-zero values in labels along axis 1
+		  print(len(iz))
+		  print(len(ix))
+		  print(len(iy))
+		  pad = 20 # padding 
 		  # Index data and labels using min/max coordinates of none-background pixels, plus padding 
-		  labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] 
-		  data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
+		  labels = labels[min(iz):max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad] 
+		  data = data[min(iz)-pad:max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad]
 		  print('Data cropped to shape: {}'.format(data.shape))
 		
 		return data, labels, classes

@@ -90,10 +90,10 @@ if val_fraction is not None:
     test_labels = labels[n_training_imgs:,...]
 
     # Save as data as numpy arrays, and header as pickel dump
-    output_file_train_data = str(output_name+"_train_data.npy")
-    output_file_train_labels = str(output_name+"_train_labels.npy")
-    output_file_test_data = str(output_name+"_test_data.npy")
-    output_file_test_labels = str(output_name+"_test_labels.npy")   
+    output_file_train_data = str(output_name+"_train_data")
+    output_file_train_labels = str(output_name+"_train_labels")
+    output_file_test_data = str(output_name+"_test_data")
+    output_file_test_labels = str(output_name+"_test_labels")   
     
     np.save(output_file_train_data,train_data)
     np.save(output_file_train_labels,train_labels)
