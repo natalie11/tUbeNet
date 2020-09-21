@@ -41,7 +41,7 @@ class DataDir:
 
 
 class DataGenerator(Sequence):
-	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None):
+	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2):
 	    'Initialization'
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
@@ -49,23 +49,31 @@ class DataGenerator(Sequence):
 	    self.data_dir = data_dir
 	    self.on_epoch_end()
 	    self.n_classes = n_classes
-	    self.dataset_weighting = dataset_weighting
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
 		return int(np.floor(len(self.data_dir.list_IDs) / self.batch_size))
 	
 	def __getitem__(self, index):
-	    'Generate one batch of data'
-	    # random.choices only available in python 3.6
-	    # randomly generate list of ID for batch, weighted accordin to given 'dataset_weighting' if not None
-	    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
-	    
-	    # Generate data
-	    #print('list IDs: {}'.format(list_IDs_temp))
-	    X, y = self.__data_generation(list_IDs_temp)
+		'Generate one batch of data'
+       
+		list_IDs_temp = [] 
+		for i in range(self.batch_size):
+       # Randomly select dataset ID       
+				ind = random.randint(0,100)
+				if ind<10:
+						ID_temp=2 #RSOM
+				elif ind<40:
+						ID_temp=0 #CT
+				else:
+						ID_temp=1 #HREM
+				list_IDs_temp.append(self.data_dir.list_IDs[ID_temp])
 
-	    return X, y
+		# Generate data
+		#print('list IDs: {}'.format(list_IDs_temp))
+		X, y = self.__data_generation(list_IDs_temp)
+
+		return X, y
 	    
 	def on_epoch_end(self):
 	    'Updates indexes after each epoch'
