@@ -853,14 +853,12 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		# Set data type
 		if labels.dtype!='int8': labels = labels.astype('int8')
         
-		# Crop data to remove borders containing only background, unless no_crop specified
-		# NB: CROP ONLY WORKS IF BACKGROUND = 0
+		# Crop data to remove borders containing only background
+        # NB: CROP ONLY WORKS IF BACKGROUND = 0
 		if not no_crop:
 		  iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
-		  pad = 20 # padding 
-		  # Index data and labels using min/max coordinates of none-background pixels, plus padding 
-		  labels = labels[min(iz)-pad:max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad] 
-		  data = data[min(iz)-pad:max(iz)+pad, min(ix)-pad:max(ix)+pad, min(iy)-pad:max(iy)+pad]
+		  labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index y_test and y_pred
+		  data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
 		  print('Data cropped to shape: {}'.format(data.shape))
 		
 		return data, labels, classes
