@@ -20,8 +20,8 @@ from matplotlib import pyplot as plt
 import tensorflow as tf
 
 # set backend as tensor flow
-from tensorflow.keras import backend as K
-K.set_image_data_format('channels_last')
+from keras import backend as K
+K.common.set_image_dim_ordering('tf')
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
@@ -132,6 +132,7 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         self.y = None
         self.pred = None
         self.data_generator = generator
+        self.validation_generator = validation
         self.index = index
         self.file_writer = tf.summary.create_file_writer(log_dir)
 
