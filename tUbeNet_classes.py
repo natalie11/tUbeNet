@@ -67,6 +67,7 @@ class DataGenerator(Sequence):
 		return batches
 	
 	def __getitem__(self, index):
+<<<<<<< HEAD
 	    'Generate one batch of data'
 	    # random.choices only available in python 3.6
 	    # randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
@@ -75,6 +76,27 @@ class DataGenerator(Sequence):
 	    X, y = self.__data_generation(list_IDs_temp)
 
 	    return X, y
+=======
+		'Generate one batch of data'
+       
+		list_IDs_temp = [] 
+		for i in range(self.batch_size):
+       # Randomly select dataset ID       
+				ind = random.randint(0,100)
+				if ind<10:
+						ID_temp=2 #RSOM
+				elif ind<50:
+						ID_temp=0 #CT
+				else:
+						ID_temp=1 #HREM
+				list_IDs_temp.append(self.data_dir.list_IDs[ID_temp])
+
+		# Generate data
+		#print('list IDs: {}'.format(list_IDs_temp))
+		X, y = self.__data_generation(list_IDs_temp)
+
+		return X, y
+>>>>>>> parent of 9e661a8... memmap load fix (again)
 	    
 	def on_epoch_end(self): #I don't think this is neccessary
 	    'Updates indexes after each epoch'

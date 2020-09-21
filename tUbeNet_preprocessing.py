@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser(description="tUbNet training and valadation dat
 # Paramters
 downsample_factor = 1               	# factor by which images are downsampled in x and y dimensions 
 pad_array = 256	           	       # size images are padded up to, to achieve n^2 x n^2 structure 
-val_fraction = 0.00                   # fraction of data to use for validation  
+val_fraction = 0.25                   # fraction of data to use for validation  
 
 """ Paths and filenames """
 path = "F:\\Paired datasets"
@@ -30,7 +30,7 @@ label_filename = os.path.join(path,"image_labels\\Monica_seg_binary_2044_2459.ti
 
 # Validation data
 output_path = "F:\\Paired datasets"
-output_name = "Retinal_angio"
+output_name = "HREM"
 train_folder = os.path.join(output_path,"train")
 test_folder = os.path.join(output_path,"test")
 

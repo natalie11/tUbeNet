@@ -100,14 +100,14 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   else: raise Exception('Data type not supported')
 	
   # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
-  y_offset = image_dims[2]*pixel
+  x_offset = image_dims[1]*pixel
   z_offset = image_dims[1]*image_dims[2]*pixel
   
   # Load data from file, one row at a time, using memmap
   volume=np.zeros(volume_dims)
   for z in range(volume_dims[0]):
     for x in range(volume_dims[1]):
-        offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
+        offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(x_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
         volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
 			 offset=offset_zx)
   
@@ -116,7 +116,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
       labels_volume = np.zeros(volume_dims)
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
-              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
+              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[1])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
                          offset=offset_zx)
       return volume, labels_volume
@@ -793,10 +793,13 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	print('Loading images from '+str(image_filename))
 	data=io.imread(image_filename)
 
+<<<<<<< HEAD
 	if len(data.shape)>3:
 	  print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
 	  data=data[:,:,:,0]
 
+=======
+>>>>>>> parent of 9e661a8... memmap load fix (again)
 	# Downsampling
 	if downsample_factor >1:
 	  print('Downsampling by a factor of {}'.format(downsample_factor))
@@ -937,6 +940,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         for k in range(math.ceil(data_dir.image_dims[index][0]/(volume_dims[0]*batch_size))):
             # find z coordinates for batch
             z = k*batch_size*volume_dims[0]   
+            # break if batch will go outside of range of image
             for i in range (int(data_dir.image_dims[index][1]/volume_dims[1])):
               x = i*volume_dims[1] # x coordinate for batch
               for j in range (int(data_dir.image_dims[index][2]/volume_dims[2])):
@@ -949,7 +953,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                 for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
                     overspill = (n+1)*volume_dims[0]-(data_dir.image_dims[index][0]-z)+1
                     if overspill>0 and overspill<volume_dims[0]:
-                        # Reduce volume dimensions for batch that would overflow data
+                        # Reduce volume dimensions for batch with overflow data
                         volume_dims_temp[0] = volume_dims_temp[0] - overspill
                     elif overspill>=volume_dims[0]:
                         # Do not load data for this batch
@@ -972,6 +976,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                             continue #if no non-zero values, continue to next iteration
                         y_test_crop = y_test[n, 0:max(iz)+1, ...] # use this to index y_test and y_pred
                         y_pred_crop = y_pred[n, 0:max(iz)+1, ...]
+                        print(y_pred.shape)
                         
                         y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y:y+y_pred_crop.shape[2]]=y_pred_crop[...,1]
                         y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test_crop.shape[0], x:x+y_test_crop.shape[1], y:y+y_test_crop.shape[2]]=y_test_crop
@@ -995,10 +1000,15 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         # Save predicted segmentation      
         if save_prediction:
             # threshold using optimal threshold
-            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+            y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+            y_pred_all[y_pred_all < optimal_thresholds[index]] = 0 
             for im in range(y_pred_all.shape[0]):
+<<<<<<< HEAD
                 save_image(y_pred_all[im,:,:], prediction_filename+'/'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'pred.tif')
                 save_image(y_test_all[im,:,:], prediction_filename+'/'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'true.tif')
+=======
+                save_image(y_pred_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'.tif')
+>>>>>>> parent of 9e661a8... memmap load fix (again)
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
         # Plot ROC 
