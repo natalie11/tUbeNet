@@ -289,16 +289,16 @@ def recall(y_true, y_pred):
     recall = true_positives / (possible_positives + K.epsilon())
     return recall
 
-#Tian's metrics - 
-def precision_logic(y_true, y_pred):
+#Tian metrics
+def precision1(y_true, y_pred):
 	#true positive
 	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
 	#false positive
 	FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
-	precision=TP/(TP+FP)
-	return precision
+	precision1=TP/(TP+FP)
+	return precision1
 
-def recall_logic(y_true, y_pred):
+def recall1(y_true, y_pred):
 	#true positive
 	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
 	#false negative
@@ -514,100 +514,101 @@ def piecewise_schedule(i, lr0, decay):
 	lr = lr0 * decay**(i)
 	return lr
 
-"Model training function "
-## OLD FUNCTION - use fit_generator instead
-# def train_model(model=None, model_gpu=None, 
-#                 image_stack=None, labels=None, 
-#                 image_test=None, labels_test=None, 
-#                 volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2,
-#                 path=None, model_filename=None, output_filename=None):
-#     """ Training 
-#     Inputs:
-#         model = ML model
-#         model_gpu = model compiled on multiple GPUs
-#         image_stack = np array of image data (z, x, y)
-#         labels = np array of labels, (z, x, y, c) where c is number of classes
-#         image_test = valdiation image data
-#         labels_test = validation label data
-#         voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
-#         batch_size = number of image sub volumes per batch int, default 2)
-#         n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
-#         n_epochs = number of epochs per training iteration (int, default 2)
-#         path = path for saving outputs and updated model
-#         model_filename = filename for trained model
-#         output_filename = filename for saving output graphs
-#     """
+# train model on image_stack and corrosponding labels 
+# OLD FUNCTION - use fit_generator instead
+def train_model(model=None, model_gpu=None, 
+                image_stack=None, labels=None, 
+                image_test=None, labels_test=None, 
+                volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2,
+                path=None, model_filename=None, output_filename=None):
+    """ Training 
+    Inputs:
+        model = ML model
+        model_gpu = model compiled on multiple GPUs
+        image_stack = np array of image data (z, x, y)
+        labels = np array of labels, (z, x, y, c) where c is number of classes
+        image_test = valdiation image data
+        labels_test = validation label data
+        voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
+        batch_size = number of image sub volumes per batch int, default 2)
+        n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
+        n_epochs = number of epochs per training iteration (int, default 2)
+        path = path for saving outputs and updated model
+        model_filename = filename for trained model
+        output_filename = filename for saving output graphs
+    """
 
-#     print('Training model')
-#     print('Number of epochs = {}'.format(n_epochs))
-#     accuracy_list=[]   
-#     precision_list=[]
-#     recall_list=[] 
-#     training_cycle_list=[] 
+    print('Training model')
+    print('Number of epochs = {}'.format(n_epochs))
+    accuracy_list=[]   
+    precision_list=[]
+    recall_list=[] 
+    training_cycle_list=[] 
     
-#     classes = np.unique(labels)
-#     n_classes = len(classes)
-#     print('Training with {} classes'.format(n_classes)) 
+    classes = np.unique(labels)
+    n_classes = len(classes)
+    print('Training with {} classes'.format(n_classes)) 
       
-#     # Train for *n_rep* cycles of *n_epochs* epochs, loading a new batch of volumes every cycle
-#     for i in range(n_rep):
-# 	    print('Training cycle {}'.format(i))
+    # Train for *n_rep* cycles of *n_epochs* epochs, loading a new batch of volumes every cycle
+    for i in range(n_rep):
+	    print('Training cycle {}'.format(i))
       
-#       # When loading a batch of volumes, check for the percentage of vessel pixels present and only train of volumes containing >0.01% vessels
-#       # These numbers may need to be changed depending on the vessel density in the data being analysed
-# 	    vessels_present = False
-# 	    while vessels_present==False:
-# 		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
-#                                            n_classes=n_classes, image_stack=image_stack, labels=labels)
-# 		    if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
-# 			    vessels_present = True
-# 		    else:
-# 			    del vol_batch, labels_batch
+      # When loading a batch of volumes, check for the percentage of vessel pixels present and only train of volumes containing >0.01% vessels
+      # These numbers may need to be changed depending on the vessel density in the data being analysed
+	    vessels_present = False
+	    while vessels_present==False:
+		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
+                                           n_classes=n_classes, image_stack=image_stack, labels=labels)
+		    if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
+			    vessels_present = True
+		    else:
+			    del vol_batch, labels_batch
           
-# 	    # fit model
-# 	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
-# 	    
-#         # calculate metrics for validation data (every 400 training iterations)
-# 	    if i in range(6000,50001,400):
-# 		    if image_test is not None:
-# 			    training_cycle_list.append(i)
-# 			    print('start prediction')
-# 			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
-#                                volume_dims=volume_dims, batch_size=batch_size, classes=classes,
-#                                accuracy_list=accuracy_list, precision_list=precision_list, recall_list=recall_list, 
-#                                save_output= False, binary_output=False, validation_output=True)
-# 			    print('end prediction')
+	    # fit model
+	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
+	    
+        # calculate metrics for validation data (every 400 training iterations)
+	    if i in range(6000,50001,400):
+		    if image_test is not None:
+			    training_cycle_list.append(i)
+			    print('start prediction')
+			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
+                               volume_dims=volume_dims, batch_size=batch_size, classes=classes,
+                               accuracy_list=accuracy_list, precision_list=precision_list, recall_list=recall_list, 
+                               save_output= False, binary_output=False, validation_output=True)
+			    print('end prediction')
                 
-#         # save model every 1000 iterations
-# 	    if i in range(1000,50001,1000):
-# 		    save_model(model, path, model_filename)
-# 		    
-#     if output_filename is not None:
-#         # plot accuracy
-#         plt.plot(training_cycle_list,accuracy_list)
-#         plt.title('Model accuracy')
-#         plt.ylabel('Accuracy')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_accuracy')
-#         plt.show()
+        # save model every 1000 iterations
+	    if i in range(1000,50001,1000):
+		    save_model(model, path, model_filename)
+		    
+    if output_filename is not None:
+        # plot accuracy
+        plt.plot(training_cycle_list,accuracy_list)
+        plt.title('Model accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_accuracy')
+        plt.show()
         
-#         # plot precision    
-#         plt.plot(training_cycle_list,precision_list)
-#         plt.title('Model precision')
-#         plt.ylabel('Precision')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_precision')
-#         plt.show()
+        # plot precision    
+        plt.plot(training_cycle_list,precision_list)
+        plt.title('Model precision')
+        plt.ylabel('Precision')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_precision')
+        plt.show()
         
-#         # plot recall    
-#         plt.plot(training_cycle_list,recall_list)
-#         plt.title('Model recall')
-#         plt.ylabel('Recall')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_recall')
-#         plt.show()   
+        # plot recall    
+        plt.plot(training_cycle_list,recall_list)
+        plt.title('Model recall')
+        plt.ylabel('Recall')
+        plt.xlabel('Training iterations')
+        plt.savefig(path+output_filename+'_recall')
+        plt.show()   
 
-#     return training_cycle_list, accuracy_list, precision_list, recall_list
+    return training_cycle_list, accuracy_list, precision_list, recall_list
+
 
 
 # Get predicted segmentations (one hot encoded) for an image stack
@@ -758,11 +759,11 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
             print('Accuracy: {}'.format(accuracy))
             if accuracy_list is not None:
                 accuracy_list.append(accuracy)
-            p=precision_logic(labels,seg_pred)
+            p=precision1(labels,seg_pred)
             if precision_list is not None:
                 precision_list.append(p)
             print('Precision: {}'.format(precision_list))
-            r=recall_logic(labels,seg_pred)
+            r=recall1(labels,seg_pred)
             if recall_list is not None:
                 recall_list.append(r)
             print('Recall: {}'.format(recall_list))
@@ -805,7 +806,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	  
 	# Normalise 
 	print('Rescaling data between 0 and 1')
-	data = (data-np.amin(data))/(np.amax(data)-np.amin(data)) # Rescale between 0 and 1
+	#data = (data-np.amin(data))/(np.amax(data)-np.amin(data)) # Rescale between 0 and 1
 	
 	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
 	# Set the images to 1024x1024 (2^10) arrays
@@ -833,11 +834,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		if downsample_factor >1:
 		  print('Downsampling by a factor of {}'.format(downsample_factor))
 		  labels=block_reduce(labels, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
-		
-		if len(labels.shape)>3:
-		  print('Label data has more than 3 dimensions. Cropping to first 3 dimensions')
-		  labels=labels[:,:,:,0]
-      
+		  
 		# Normalise 
 		# NO NEED WITH OHE???? - required to allow conversion to int8 if values outside int8 range
 		print('Rescaling data between 0 and 1')
@@ -859,7 +856,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		# NB: CROP ONLY WORKS IF BACKGROUND = 0
 		if not no_crop:
 		  iz, ix, iy = np.nonzero(labels) # find instances of non-zero values in labels along axis 1
-		  # Index data and labels using min/max coordinates of none-background pixels 
+		  # Index data and labels using min/max coordinates of none-background pixels, plus padding 
 		  labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] 
 		  data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
 		  print('Data cropped to shape: {}'.format(data.shape))

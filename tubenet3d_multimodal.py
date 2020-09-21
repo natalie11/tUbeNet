@@ -10,8 +10,8 @@ import os
 from functools import partial
 import numpy as np
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator, DataHeader, ImageDisplayCallback, MetricDisplayCallback
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tUbeNet_classes import DataDir, DataGenerator, DataHeader
+from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import argparse
 import pickle
 import datetime
@@ -162,25 +162,15 @@ else:
                                     n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision])
 
 """ Train and save model """
-#Files
+#TRAIN
 date = datetime.datetime.now()
-filepath = os.path.join(model_output_dir,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
-log_dir = (os.path.join(output_path,'logs'))
-if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
-
-#Callbacks
 schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+filepath = os.path.join(model_output_dir,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
 checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
-tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
-imageCallback = ImageDisplayCallback(training_generator,log_dir=log_dir)
-metricCallback = MetricDisplayCallback(log_dir=log_dir)
-
-#Fit
 history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback,imageCallback,metricCallback])
+                                callbacks=[LearningRateScheduler(schedule), checkpoint])
 
-#Save model
+# SAVE MODEL
 model_filename = "{}_model".format(date.strftime("%d%m%y"))
 tube.save_model(model, model_output_dir, model_filename)
 
