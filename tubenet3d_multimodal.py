@@ -14,12 +14,12 @@ from tUbeNet_classes import DataDir, DataGenerator, DataHeader
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import argparse
 import pickle
-import datetime
+import datetime.datetime
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 # Create argument parser
-parser = argparse.ArgumentParser(description="tUbNet training script")
+parser = argparse.ArugmentParser(description="tUbNet training script")
 
 parser.add_argument("--volume_dims", help="dimensions of subsampling volume for use in training, three integers seperated by spaces (default %(default)s)",
                     type=int, nargs=3, default=(64, 64, 64))
@@ -30,9 +30,9 @@ parser.add_argument("--steps_per_epoch", help="number of steps per training epoc
 parser.add_argument("--batch_size", help="batch size (default %(default)s)",
                     type=int, default=2)
 parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
-                    type=int, nargs='*', default=None)
-parser.add_argument("--dataset_weights", help="weighting of different datasets to account for differences in size, integers seperated by spaces (default %(default)s)",
-                    type=int, nargs='*', default=None)
+                    type=int, default=None)
+parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
+                    type=int, default=None)
 parser.add_argument("--n_classes", help="number of classes (NOTE: model currently only supports binary classicifaction, ie n_classes=2)",
                     type=int, default=2)
 parser.add_argument("--binary_output", help="presence of this flag indicates a binary output is desired, as opposed to softmax",
@@ -51,7 +51,7 @@ parser.add_argument("--model_file", help="if using a previously saved model, pro
 parser.add_argument("--model_output_dir", help="path to folder in which trained model will be saved",
                     type=str, required=True)
 
-args=parser.parse_args()
+args=parser.parser_args()
 
 # Paramters
 volume_dims = args.volume_dims   	 	
@@ -62,7 +62,7 @@ class_weights = args.class_weights
 n_classes= args.n_classes
 binary_output = args.binary_output        	
 fine_tuning = args.fine_tuning
-dataset_weighting = args.dataset_weights
+dataset_weighting = args.dataset_weighting
 
 # Training data
 data_path = args.data_dir
@@ -80,8 +80,6 @@ model_output_dir = args.model_output_dir
 if args.model_file is not None:
     use_saved_model= True
     model_file = args.model_file
-else:
-    use_saved_model= False
 
 
 
@@ -140,7 +138,7 @@ for header in headers:
     data_dir.list_IDs.append(header.modality)
     data_dir.image_dims.append(header.image_dims)
     data_dir.image_filenames.append(header.image_filename)
-    data_dir.label_filenames.append(header.label_filename)
+    data_dir.label_filenames.append(header.lable_filename)
     data_dir.data_type.append('float32')
 
 """ Create Data Generator """
@@ -148,7 +146,7 @@ params = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
 	       'shuffle': False,
-          'dataset_weighting': dataset_weighting}
+           'dataset_weighting': dataset_weighting}
 
 training_generator=DataGenerator(data_dir, **params)
 
