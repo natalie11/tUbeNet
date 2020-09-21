@@ -30,7 +30,7 @@ import tensorflow as tf
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing AVX AVX2
 # set backend as tensor flow
 from keras import backend as K
-K.common.set_image_dim_ordering('tf')
+K.set_image_dim_ordering('tf')
 
 import matplotlib.pyplot as plt
 

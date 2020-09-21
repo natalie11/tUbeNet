@@ -10,7 +10,7 @@ import os
 from functools import partial
 import numpy as np
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator, DataHeader
+from tUbeNet_classes import DataDir, DataGenerator, DataHeade
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 import argparse
 import pickle
@@ -62,6 +62,7 @@ fine_tuning = args.fine_tuning
 
 # Training data
 data_path = args.data_dir
+header_filenames = os.listdir(data_path)
 
 # Validation data
 if args.validation_dir:
@@ -117,7 +118,7 @@ custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
 
-#""" Create data Directory """ OLD CODE!!
+""" Create data Directory """
 #for i in range(len(image_filenames)):
 #    image_filenames[i]=os.path.join(path,'data\\'+image_filenames[i])
 #    label_filenames[i]=os.path.join(path,'labels\\'+label_filenames[i])
@@ -130,30 +131,15 @@ custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
 #
 #data_dir = DataDir(data['list_ID'], image_dims=data['image_dims'], image_filenames=data['image_filename'], 
 #                   label_filenames=data['label_filename'], data_type=data['data_type'])
- 
-""" Create data Directory """  
-# Import data header
-header_filenames=os.listdir(data_path)
-headers = []
-for file in header_filenames: #Iterate through header files
-    file=os.path.join(data_path,file)
-    with open(file, "rb") as f:
-        data_header = pickle.load(f) # Unpickle DataHeader object
-    headers.append(data_header) # Add to list of headers
     
-# Create empty data directory    
-data_dir = DataDir([], image_dims=[], 
-                   image_filenames=[], 
-                   label_filenames=[], 
-                   data_type=[])
+# Import data header
+for i in range(len(header_filenames)):
+    header_filenames[i]=os.path.join(data_path,header_filenames[i])
+    with open(header_filenames[i], "rb") as f:
+        data_header = pickle.load(f)
+    
+data_dir = DataDir()    
 
-# Fill directory from headers
-for header in headers:
-    data_dir.list_IDs.append(header.modality)
-    data_dir.image_dims.append(header.image_dims)
-    data_dir.image_filenames.append(header.image_filename)
-    data_dir.label_filenames.append(header.lable_filename)
-    data_dir.data_type.append('float32')
 
 """ Create Data Generator """
 params = {'batch_size': batch_size,
@@ -162,7 +148,7 @@ params = {'batch_size': batch_size,
 	       'shuffle': False}
 
 training_generator=DataGenerator(data_dir, **params)
-
+#
 """ Load or Build Model """
 if use_saved_model:
     model_gpu, model = tube.load_saved_model(filename=model_input,
