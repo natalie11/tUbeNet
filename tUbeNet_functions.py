@@ -780,7 +780,7 @@ def predict_segmentation(model_gpu=None, image_stack=None, labels=None,
 
 
 
-def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=None, no_crop=False):
+def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=None):
 	"""# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -795,75 +795,60 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
     """
    # Load image
 	print('Loading images from '+str(image_filename))
-	data=io.imread(image_filename)
+	img=io.imread(image_filename)
 
-	if len(data.shape)>3:
+	if len(img.shape)>3:
 	  print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
-	  data=data[:,:,:,0]
+	  img=img[:,:,:,0]
 
 	# Downsampling
 	if downsample_factor >1:
 	  print('Downsampling by a factor of {}'.format(downsample_factor))
-	  data=block_reduce(data, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
+	  img=block_reduce(img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
 	  
 	# Normalise 
 	print('Rescaling data between 0 and 1')
-	data = (data-np.amin(data))/(np.amax(data)-np.amin(data)) # Rescale between 0 and 1
+	img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
 	
 	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
 	# Set the images to 1024x1024 (2^10) arrays
 	if pad_array is not None:
 		print('Padding array')
-		xpad=(pad_array-data.shape[1])//2
-		ypad=(pad_array-data.shape[2])//2
+		xpad=(pad_array-img.shape[1])//2
+		ypad=(pad_array-img.shape[2])//2
 	
-		data_pad = np.zeros([data.shape[0],pad_array,pad_array], dtype='float32')
-		data_pad[0:data.shape[0],xpad:data.shape[1]+xpad,ypad:data.shape[2]+ypad] = data
-		data=data_pad
-		print('Shape of padded image array: {}'.format(data.shape))
-        
-	# Set data type
-	if data.dtype!='float32':
-		data = data.astype('float32')
-
-
-	#Repeat for labels if present
+		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
+		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
+		img=img_pad
+		print('Shape of padded image array: {}'.format(img_pad.shape))
+	
+	#Repeat for labels is present
 	if label_filename is not None:
 		print('Loading labels from '+str(label_filename))
-		labels=io.imread(label_filename)
+		seg=io.imread(label_filename)
 	
 		# Downsampling
 		if downsample_factor >1:
 		  print('Downsampling by a factor of {}'.format(downsample_factor))
-		  labels=block_reduce(labels, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
+		  seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
 		  
 		# Normalise 
 		print('Rescaling data between 0 and 1')
-		labels = (labels-np.amin(labels))/(np.amax(labels)-np.amin(labels))
+		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
 		
 		# Pad
 		if pad_array is not None:
 		  print('Padding array')
-		  labels_pad = np.zeros([labels.shape[0],pad_array,pad_array], dtype='int8')
-		  labels_pad[0:labels.shape[0],xpad:labels.shape[1]+xpad,ypad:labels.shape[2]+ypad] = labels
-		  labels=labels
+		  seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
+		  seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
+		  seg=seg_pad
 		
 		# Find the number of unique classes in segmented training set
-		classes = np.unique(labels)
+		classes = np.unique(seg)
 		
-		# Set data type
-		if labels.dtype!='int8': labels = labels.astype('int8')
-        
-		# Crop data to remove borders containing only background
-		if not no_crop:
-		  iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
-		  labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index y_test and y_pred
-		  data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
-		  print('Data cropped to shape: {}'.format(data.shape))
-		
-		return data, labels, classes
+		return img, seg, classes
 	
-	return data
+	return img
 
 
 def load_saved_model(model_path=None, filename=None,

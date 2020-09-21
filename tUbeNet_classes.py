@@ -9,7 +9,6 @@ Developed by Natalie Holroyd (UCL)
 import numpy as np
 import tUbeNet_functions as tube
 import random
-import pickle
 # kera utils
 from keras.utils import Sequence, to_categorical #np_utils
 
@@ -18,18 +17,6 @@ from keras import backend as K
 K.set_image_dim_ordering('tf')
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
-class DataHeader:
-    def __init__(self, modality=None, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None):
-	    'Initialization' 
-	    self.modality = modality
-	    self.image_dims = image_dims
-	    self.image_filenames = image_filenames
-	    self.label_filenames = label_filenames
-    def save(self, filename):
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-
 class DataDir:
 	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64'):
 	    'Initialization'    
