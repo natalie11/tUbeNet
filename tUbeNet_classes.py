@@ -59,12 +59,7 @@ class DataGenerator(Sequence):
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
-		batches = 0 
-		for i in range(len(self.data_dir.list_IDs)):
-		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
-		    batches += batches_per_dataset
-		    print(batches) 
-		return batches
+		return int(np.floor(len(self.data_dir.list_IDs) / self.batch_size))
 	
 	def __getitem__(self, index):
 	    'Generate one batch of data'
@@ -78,9 +73,9 @@ class DataGenerator(Sequence):
 	    
 	def on_epoch_end(self): #I don't think this is neccessary
 	    'Updates indexes after each epoch'
-#	    self.indexes = np.arange(len(self.data_dir.list_IDs))
-#	    if self.shuffle == True:
-#		    np.random.shuffle(self.indexes)
+	    self.indexes = np.arange(len(self.data_dir.list_IDs))
+	    if self.shuffle == True:
+		    np.random.shuffle(self.indexes)
 		    
 	def __data_generation(self, list_IDs_temp):
 	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)

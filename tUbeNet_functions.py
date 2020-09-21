@@ -999,8 +999,8 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
             # threshold using optimal threshold
             #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
             for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], prediction_filename+'/'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'pred.tif')
-                save_image(y_test_all[im,:,:], prediction_filename+'/'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'true.tif')
+                save_image(y_pred_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'.tif')
+                save_image(y_test_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'true.tif')
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
         # Plot ROC 
@@ -1015,6 +1015,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
         plt.show()
-        fig.savefig(prediction_filename+'/ROC_'+str(data_dir.list_IDs[index])+'.png')
+        fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
 
     return optimal_thresholds, recall, precision
