@@ -15,7 +15,7 @@ import argparse
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
-parser = argparse.ArgumentParser(description="tUbNet training and valadation data processing script")
+parser = argparse.ArugmentParser(description="tUbNet training and valadation data processing script")
 
 parser.add_argument("--downsample_factor", help="factor by which images are downsampled in x and y dimensions (default %(default)s)",
                     type=int, default=1)
@@ -36,7 +36,7 @@ parser.add_argument("--label_filename", help="path and filename for labels to be
 parser.add_argument("--output_dir", help="path to folder in which output images will be saved",
                     type=str)
 
-args=parser.parse_args()
+args=parser.parser_args()
 
 # Paramters
 downsample_factor = args.downsample_factor    
@@ -108,7 +108,7 @@ if val_fraction is not None:
     header_test = DataHeader(modality=modality, image_dims=test_data.shape, image_filename=output_file_test_data, 
                    label_filename=output_file_test_labels)
     header_test.save(str(output_name+'_test_header'))
-    print("Processed data and header files saved to "+str(output_dir))
+    
 else:
     output_file_data = str(output_name+"_data")
     output_file_labels = str(output_name+"_labels")
@@ -118,4 +118,3 @@ else:
     header = DataHeader(modality=modality, image_dims=data.shape, image_filename=output_file_data, 
                    label_filename=output_file_labels)
     header.save(str(output_name+'_header'))
-    print("Processed data and header files saved to "+str(output_dir))
