@@ -21,16 +21,16 @@ from skimage.measure import block_reduce
 
 # Paramters
 downsample_factor = 1           	# factor by which images are downsampled in x and y dimensions 
-pad_array = 1024	           	   # size images are padded up to, to achieve n^2 x n^2 structure 
 volume_dims = (64,128,128)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
+coords = (240,1500,2000)
 
 # Paths and filenames
-path = "F:\\Paired datasets\\CT"
-img_filename = os.path.join(path,"LS_C1M3_yanan_4subsample.tif")
-seg_filename = os.path.join(path,"LS_C1M3_yanan_segmentation.tif")
+path = "F:\\Paired datasets"
+img_filename = os.path.join(path,"image_data/GFP_2044_2459.tif")
+seg_filename = os.path.join(path,"image_labels/Monica_seg_binary_2044_2459.tif")
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
-def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=1024):
+def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1):
 	"""# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -55,17 +55,8 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	# Normalise 
 	print('Rescaling data between 0 and 1')
 	img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
-	
-	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
-	# Set the images to 1024x1024 (2^10) arrays
-	print('Padding array')
-	xpad=(pad_array-img.shape[1])//2
-	ypad=(pad_array-img.shape[2])//2
-	
-	img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
-	img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
-	del img
-	print('Shape of padded image array: {}'.format(img_pad.shape))
+
+	print('Shape of image array: {}'.format(img.shape))
 	
 	#Repeat for labels is present
 	if label_filename is not None:
@@ -81,18 +72,12 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		print('Rescaling data between 0 and 1')
 		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
 		
-		# Pad
-		print('Padding array')
-		seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
-		seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
-		
 		# Find the number of unique classes in segmented training set
-		classes = np.unique(seg_pad)
-		del seg
+		classes = np.unique(seg)
 		
-		return img_pad, seg_pad, classes
+		return img, seg, classes
 	
-	return img_pad
+	return img
 
 def save_image(array, filename):
     """Save image to file
@@ -103,6 +88,7 @@ def save_image(array, filename):
     image = Image.fromarray(array)
     image.save(filename)
 
+  
 def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
 				  image_filename=None, label_filename=None, 
 				  coords=None, data_type='float64', offset=128):
@@ -156,29 +142,28 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   else: raise Exception('Data type not supported')
 	
   # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
-  x_offset = image_dims[1]*pixel
+  y_offset = image_dims[2]*pixel
   z_offset = image_dims[1]*image_dims[2]*pixel
   
   # Load data from file, one row at a time, using memmap
   volume=np.zeros(volume_dims)
   for z in range(volume_dims[0]):
     for x in range(volume_dims[1]):
+        offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
         volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
-			 offset=(offset + pixel*(coords[2]) + x_offset*(x+coords[1]) + z_offset*(z+coords[0])))
+			 offset=offset_zx)
   
   # If labels_filename given, generate labels_volume using same coordinates
   if label_filename is not None:
       labels_volume = np.zeros(volume_dims)
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
+              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
-                         offset=(offset + coords[2] + image_dims[1]*(x+coords[1]) + image_dims[1]*image_dims[2]*(z+coords[0])))
+                         offset=offset_zx)
       return volume, labels_volume
   else:
       return volume
-
-  
-
 
 def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
   """Load a sub-volume of the 3D image. 
@@ -229,26 +214,27 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=No
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
 """ Load and Preprocess data """
-img_pad, seg_pad, classes = data_preprocessing(image_filename=img_filename, label_filename=seg_filename, 
-                                                    downsample_factor=downsample_factor, pad_array=pad_array)
+img, seg, classes = data_preprocessing(image_filename=img_filename, label_filename=seg_filename, 
+                                                    downsample_factor=downsample_factor)
 
 """
 TESTING MEMMAP LOADING
 """
-img_pad=img_pad.astype('float32')
-seg_pad=seg_pad.astype('int8')
+img=img.astype('float32')
+seg=seg.astype('int8')
 image_array=os.path.join(path,"image_array.npy")
 label_array=os.path.join(path,"label_array.npy")
-np.save(image_array,img_pad)
-np.save(label_array,seg_pad)
-img_subvol, labels_subvol = load_volume(volume_dims=volume_dims,image_stack=img_pad, labels=seg_pad, coords=(300,400,500))
-for i in range(64):
-    save_image(img_subvol[i,:,:], os.path.join(path,'load_volume_output_'+str(i)+'.tif'))
-    save_image(labels_subvol[i,:,:], os.path.join(path,'load_volume_labels_output'+str(i)+'.tif'))
+np.save(image_array,img)
+np.save(label_array,seg)
 
-img_subvol_mem, labels_subvol_mem = load_volume_from_file(volume_dims=volume_dims, image_dims = (682,1024,1024),
-                     image_filename=image_array, label_filename=label_array,
-                     offset=128,coords=(300,400,500), data_type='float32')
+img_subvol, labels_subvol = load_volume(volume_dims=volume_dims,image_stack=img, labels=seg, coords=coords)
 for i in range(64):
-    save_image(img_subvol_mem[i,:,:], os.path.join(path,'load_memmap_output_'+str(i)+'.tif'))
-    save_image(labels_subvol_mem[i,:,:], os.path.join(path,'load_memmap_labels_output'+str(i)+'.tif'))
+    save_image(img_subvol[i,:,:], os.path.join(path,'volumeload/load_volume_output_'+str(i)+'.tif'))
+    save_image(labels_subvol[i,:,:], os.path.join(path,'volumeloadlabels/load_volume_labels_output'+str(i)+'.tif'))
+
+img_subvol_mem, labels_subvol_mem = load_volume_from_file(volume_dims=volume_dims, image_dims = img.shape,
+                     image_filename=image_array, label_filename=label_array,
+                     offset=128,coords=coords, data_type='float32')
+for i in range(64):
+    save_image(img_subvol_mem[i,:,:], os.path.join(path,'memmapload/load_memmap_output_'+str(i)+'.tif'))
+    save_image(labels_subvol_mem[i,:,:], os.path.join(path,'memmaploadlabels/load_memmap_labels_output'+str(i)+'.tif'))
