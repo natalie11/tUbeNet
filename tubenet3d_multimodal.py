@@ -18,8 +18,8 @@ from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	      # number of1 epoch for training CNN
-steps_per_epoch = 1000		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 5			         	      # number of1 epoch for training CNN
+steps_per_epoch = 100		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	   # batch size for training CNN
 use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
 save_model = True		        	   # save model structure and weights? Yes=True, No=False
@@ -49,6 +49,8 @@ output_filename = 'output'
 
 # create partial for  to pass to complier
 custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
+custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+custom_loss.__module__ = tube.weighted_crossentropy.__module__
 
 # callbacks              
 #time_callback = tube.TimeHistory()		      

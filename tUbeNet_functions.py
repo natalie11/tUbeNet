@@ -25,12 +25,14 @@ from keras.initializers import RandomNormal
 from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch
 import time
+
 # import tensor flow
 import tensorflow as tf
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing AVX AVX2
-# set backend as tensor flow
-from keras import backend as K
-K.set_image_dim_ordering('tf')
+# set backend and dim ordering (updated for keras 2.5/ tf 2, keras is now within tensorflow)
+K=tf.keras.backend
+K.set_image_data_format('channels_last')
+
 
 import matplotlib.pyplot as plt
 

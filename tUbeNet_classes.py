@@ -12,9 +12,6 @@ import random
 # kera utils
 from keras.utils import Sequence, to_categorical #np_utils
 
-# set backend as tensor flow
-from keras import backend as K
-K.set_image_dim_ordering('tf')
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataDir:
@@ -39,7 +36,11 @@ class DataGenerator(Sequence):
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
-		return int(np.floor(len(self.data_dir.list_IDs) / self.batch_size))
+		batches = 0 
+		for i in range(len(self.data_dir.list_IDs)):
+		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
+		    batches += batches_per_dataset
+		return batches
 	
 	def __getitem__(self, index):
 		'Generate one batch of data'
