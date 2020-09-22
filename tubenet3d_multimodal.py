@@ -29,8 +29,8 @@ parser.add_argument("--steps_per_epoch", help="number of steps per training epoc
                     type=int, default=1000)
 parser.add_argument("--batch_size", help="batch size (default %(default)s)",
                     type=int, default=2)
-parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
-                    type=int, nargs='*', default=None)
+parser.add_argument("--class_weights", help="weighting of background class to vessel class, two numbers seperated by spaces (default %(default)s)",
+                    type=float, nargs='*', default=None)
 parser.add_argument("--dataset_weights", help="weighting of different datasets to account for differences in size, integers seperated by spaces (default %(default)s)",
                     type=int, nargs='*', default=None)
 parser.add_argument("--n_classes", help="number of classes (NOTE: model currently only supports binary classicifaction, ie n_classes=2)",
@@ -116,11 +116,6 @@ else:
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
-# create partial for  to pass to complier
-custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-custom_loss.__module__ = tube.weighted_crossentropy.__module__
-
 """ Create data Directory """  
 # Import data header
 header_filenames=os.listdir(data_path)
@@ -157,11 +152,11 @@ training_generator=DataGenerator(data_dir, **params)
 """ Load or Build Model """
 if use_saved_model:
     model_gpu, model = tube.load_saved_model(filename=model_file,
-                         learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
+                         learning_rate=1e-5, n_gpus=2, loss=tube.weighted_crossentropy(class_weights), metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision])
+                                    n_gpus=2, learning_rate=1e-5, loss=tube.weighted_crossentropy(class_weights), metrics=['accuracy', tube.recall, tube.precision])
 
 """ Train and save model """
 #Files

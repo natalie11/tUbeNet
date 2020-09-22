@@ -266,13 +266,27 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	if weights is None: 
-		return K.categorical_crossentropy(y_true, y_pred,) # No weighting
-	else: 
-		weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-		return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+def weighted_crossentropy(weights):
+    """
+    From: https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d
+    A weighted version of keras.objectives.categorical_crossentropy
+    
+    Variables:
+        weights: numpy array of shape (C,) where C is the number of classes
+    
+    Usage:
+        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+        Returns function that takes (y_true, y_pred)
+    """
+  
+    weights = K.variable(weights)
+    
+    def loss(y_true,y_pred):  
+        weighted_true = y_true * weights
+        cce = tf.keras.losses.CategoricalCrossentropy()
+        return cce(weighted_true, y_pred)
+    
+    return loss
 
 
 """Custom metrics"""

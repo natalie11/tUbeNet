@@ -63,7 +63,6 @@ class DataGenerator(Sequence):
 		for i in range(len(self.data_dir.list_IDs)):
 		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
 		    batches += batches_per_dataset
-		    print(batches) 
 		return batches
 	
 	def __getitem__(self, index):
@@ -123,6 +122,7 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs={}):
         # have tf log custom metrics and save to file
+        print()
         with self.file_writer.as_default():
             for k,v in zip(logs.keys(),logs.values()):
                 # iterate through monitored metrics (k) and values (v)
