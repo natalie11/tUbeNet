@@ -12,103 +12,38 @@ import numpy as np
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
-import argparse
-import datetime
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
-# Create argument parser
-parser = argparse.ArgumentParser(description="tUbNet training script")
-
-parser.add_argument("--volume_dims", help="dimensions of subsampling volume for use in training, three integers seperated by spaces (default %(default)s)",
-                    type=int, nargs=3, default=(64, 64, 64))
-parser.add_argument("--n_epochs", help="number of training epochs (default %(default)s)",
-                    type=int, default=100)
-parser.add_argument("--steps_per_epoch", help="number of steps per training epochs (default %(default)s)",
-                    type=int, default=1000)
-parser.add_argument("--batch_size", help="batch size (default %(default)s)",
-                    type=int, default=2)
-parser.add_argument("--class_weights", help="weighting of background class to vessel class, two integers seperated by spaces (default %(default)s)",
-                    type=int, nargs='*', default=None)
-#parser.add_argument("--dataset_weights", help="weighting of different datasets to account for differences in size, integers seperated by spaces (default %(default)s)",
-#                    type=int, nargs='*', default=None)
-parser.add_argument("--n_classes", help="number of classes (NOTE: model currently only supports binary classicifaction, ie n_classes=2)",
-                    type=int, default=2)
-parser.add_argument("--binary_output", help="presence of this flag indicates a binary output is desired, as opposed to softmax",
-                    action="store_true")
-parser.add_argument("--fine_tuning", help="include this flag if fine-tuning a pre-trained model",
-                    action="store_true")
-
-parser.add_argument("--data_dir", help="path to data directory containing dta header files",
-                    type=str, required=True)
-parser.add_argument("--validation_dir", help="path to validation data directory containing data header files",
-                    type=str)
-parser.add_argument("--output_dir", help="path to folder in which output images will be saved",
-                    type=str)
-parser.add_argument("--model_file", help="if using a previously saved model, provide the file path",
-                    type=str)
-parser.add_argument("--model_output_dir", help="path to folder in which trained model will be saved",
-                    type=str, required=True)
-
-args=parser.parse_args()
+"""Set hard-coded parameters and file paths:"""
 
 # Paramters
-volume_dims = args.volume_dims   	 	
-n_epochs = args.n_epochs		     
-steps_per_epoch = args.steps_per_epoch	      
-batch_size = args.batch_size		 	       	   
-class_weights = args.class_weights 	        	
-n_classes= args.n_classes
-binary_output = args.binary_output        	
-fine_tuning = args.fine_tuning
-#dataset_weighting = args.dataset_weights
+volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
+n_epochs = 5			         	      # number of1 epoch for training CNN
+steps_per_epoch = 100		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+batch_size = 2		 	       	   # batch size for training CNN
+use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
+save_model = True		        	   # save model structure and weights? Yes=True, No=False
+fine_tuning = False               # prepare model for fine tuning by replacing classifier and freezing shallow layers
+class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
+binary_output = False	           	# save as binary (True) or softmax (False)
+n_classes=2
 
-# Training data
-path = args.data_dir
-
-# Validation data
-if args.validation_dir:
-    val_path = args.validation_dir
-    test_header_filenames = os.listdir(val_path)
-
-# Output data
-output_path = args.output_dir
-
-# Model
-model_output_dir = args.model_output_dir
-if args.model_file is not None:
-    use_saved_model= True
-    model_file = args.model_file
-else:
-    use_saved_model= False
-
-## Paramters
-#volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-#n_epochs = 5			         	   # number of1 epoch for training CNN
-#steps_per_epoch = 100		      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
-#batch_size = 2		 	       	   # batch size for training CNN
-#use_saved_model = False	      # use saved model structure and weights? Yes=True, No=False
-#save_model = True		        	 # save model structure and weights? Yes=True, No=False
-#fine_tuning = False             # prepare model for fine tuning by replacing classifier and freezing shallow layers
-#class_weights = (1,7) 	         # relative weighting of background to blood vessel classes
-#binary_output = False	         # save as binary (True) or softmax (False)
-#n_classes=2
-#
 """ Paths and filenames """
 # Training data
-#path = "F:\\Paired datasets\\train"
+path = "F:\\Paired datasets\\train"
 image_filenames = os.listdir(os.path.join(path,"data"))
 label_filenames = os.listdir(os.path.join(path,"labels"))
 
 # Validation data
-#val_path = "F:\\Paired datasets\\test"
+val_path = "F:\\Paired datasets\\test"
 X_test_filenames = os.listdir(os.path.join(val_path,"data"))
 y_test_filenames = os.listdir(os.path.join(val_path,"labels"))
-#
-## Model
-#model_path = 'F:\\Paired datasets'
-#model_filename = 'multimodal_cropped_100epochs_1000steps'
-#updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Feb2'
-#output_filename = 'output'
+
+# Model
+model_path = 'F:\\Paired datasets'
+model_filename = 'multimodal_cropped_100epochs_1000steps'
+updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Feb2'
+output_filename = 'output'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -145,7 +80,7 @@ training_generator=DataGenerator(data_dir, **params)
 #
 """ Load or Build Model """
 if use_saved_model:
-    model_gpu, model = tube.load_saved_model(filename=model_file,
+    model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
                          learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
@@ -155,15 +90,14 @@ else:
 """ Train and save model """
 #TRAIN
 schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
-filepath = os.path.join(model_output_dir,"multimodal_checkpoint")
+filepath = os.path.join(model_path,"multimodal_checkpoint")
 checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
 history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                 callbacks=[LearningRateScheduler(schedule), checkpoint])
 
 # SAVE MODEL
-date = datetime.datetime.now()
-model_filename = "{}_model".format(date.strftime("%d%m%y"))
-tube.save_model(model, model_output_dir, model_filename)
+if save_model:
+	tube.save_model(model, model_path, updated_model_filename)
 
 """ Plot ROC """
 # Create directory of validation data
