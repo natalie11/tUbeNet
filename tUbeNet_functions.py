@@ -853,7 +853,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	return img
 
 
-def load_saved_model(model_path=None, filename=None,
+def load_saved_model(filename=None,
                      learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
 	"""# Load Saved Model
@@ -871,8 +871,8 @@ def load_saved_model(model_path=None, filename=None,
         model_gpu = multi GPU model
         model = model on CPU (required for saving)
     """
-	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
-	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
+	mfile = os.path.join(filename+'.h5') # file containing weights
+	jsonfile = os.path.join(filename+'.json') # file containing model template in json format
 	print('Loading model')
 	# open json
 	json_file = open(jsonfile, 'r')
