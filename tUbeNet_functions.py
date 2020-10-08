@@ -14,13 +14,11 @@ import math
 # import required objects and fuctions from keras
 from keras.models import Model, model_from_json #load_model
 # CNN layers
-from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout, AveragePooling3D, Reshape, Flatten, Dense, Lambda
+from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
 from keras.utils import multi_gpu_model, to_categorical #np_utils
 # opimiser
 from keras.optimizers import Adam
-# initiliser
-from keras.initializers import RandomNormal
 # checkpoint
 from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch

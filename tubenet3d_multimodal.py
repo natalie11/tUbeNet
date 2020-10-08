@@ -9,17 +9,18 @@ Developed by Natalie Holroyd (UCL)
 import os
 from functools import partial
 import numpy as np
+import datetime
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint
+from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
+from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 5			         	      # number of1 epoch for training CNN
-steps_per_epoch = 100		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 100			         	      # number of1 epoch for training CNN
+steps_per_epoch = 1000		         	 	      # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	   # batch size for training CNN
 use_saved_model = False	        	# use saved model structure and weights? Yes=True, No=False
 save_model = True		        	   # save model structure and weights? Yes=True, No=False
@@ -27,6 +28,7 @@ fine_tuning = False               # prepare model for fine tuning by replacing c
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 binary_output = False	           	# save as binary (True) or softmax (False)
 n_classes=2
+dataset_weighting = (35,65,0)
 
 """ Paths and filenames """
 # Training data
@@ -42,7 +44,7 @@ y_test_filenames = os.listdir(os.path.join(val_path,"labels"))
 # Model
 model_path = 'F:\\Paired datasets'
 model_filename = 'multimodal_cropped_100epochs_1000steps'
-updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Feb2'
+updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Oct5'
 output_filename = 'output'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -74,6 +76,7 @@ data_dir = DataDir(data['list_ID'], image_dims=data['image_dims'], image_filenam
 params = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
+          'dataset_weighting': dataset_weighting,
 	       'shuffle': False}
 
 training_generator=DataGenerator(data_dir, **params)
@@ -88,12 +91,25 @@ else:
                                     n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision])
 
 """ Train and save model """
-#TRAIN
+#Files
+date = datetime.datetime.now()
+filepath = os.path.join(model_path,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
+log_dir = (os.path.join(model_path,'logs'))
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+    
+
+#Callbacks
 schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
 filepath = os.path.join(model_path,"multimodal_checkpoint")
 checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
+imageCallback = ImageDisplayCallback(training_generator,log_dir=log_dir)
+metricCallback = MetricDisplayCallback(log_dir=log_dir)
+
+#Fit
 history=model_gpu.fit_generator(generator=training_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                callbacks=[LearningRateScheduler(schedule), checkpoint])
+                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
 
 # SAVE MODEL
 if save_model:
