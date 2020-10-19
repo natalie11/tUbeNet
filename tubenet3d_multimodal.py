@@ -88,7 +88,7 @@ if use_saved_model:
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision])
+                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
 #Files

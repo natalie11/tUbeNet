@@ -123,7 +123,19 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         self.index = index
         self.file_writer = tf.summary.create_file_writer(log_dir)
 
-    def on_epoch_end(self, epoch, logs={}, path=None):
+    def plot_to_image(fig):
+        # save image as png to memory, then convert to tensor (to allow display with tensorboard)
+        buf = io.BytesIO()
+        plt.savefig(buf,format='png')
+        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
+        plt.close(fig)
+        buf.seek(0)
+        image = tf.image.decode_png(buf.getvalue(),channels=4)
+        image = tf.expand_dims(image,0)
+        
+        return image
+    
+    def on_epoch_end(self, epoch, logs={}):
 
         self.x, self.y = self.data_generator.__getitem__(self.index)
         self.pred = self.model.predict(self.x)
@@ -162,17 +174,10 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         ax.title.set_text('Labels')
         plt.axis("off")
 
-        buf = io.BytesIO()
-        plt.savefig(buf,format='png')
-        plt.savefig(os.path.join(path,str(epoch)+'_output.png'))
-        plt.close(fig)
-        buf.seek(0)
-        image = tf.image.decode_png(buf.getvalue(),channels=4)
-        image = tf.expand_dims(image,0)
-        buf.close()
+        image = self.plot_to_image(fig)
 
         with self.file_writer.as_default():
-
+                tf.summary.image("Example subvolume",image,step=epoch)
     
 #from sklearn.metrics import roc_auc_score
 #from keras.callbacks import Callback

@@ -288,6 +288,12 @@ def recall(y_true, y_pred):
     recall = true_positives / (possible_positives + K.epsilon())
     return recall
 
+def dice(y_true, y_pred):
+    P = precision(y_true, y_pred)
+    R = recall(y_true, y_pred)
+    dice = 2*(P*R)/(P+R)
+    return dice
+
 #Tian metrics
 def precision1(y_true, y_pred):
 	#true positive
