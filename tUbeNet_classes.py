@@ -21,6 +21,17 @@ from matplotlib import pyplot as plt
 import tensorflow as tf
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
+class DataHeader:
+    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
+	    'Initialization' 
+	    self.ID = ID
+	    self.image_dims = image_dims
+	    self.image_filename = image_filename
+	    self.label_filename = label_filename
+    def save(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+
 class DataDir:
 	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64'):
 	    'Initialization'    

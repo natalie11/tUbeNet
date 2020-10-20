@@ -10,6 +10,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 import tUbeNet_functions as tube
+from tUbeNet_functions import DataHeader
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -34,13 +35,11 @@ output_name = "RSOM"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
-# Define paths using os.path.join
+# Define path for data & labels if necessary
 image_filename = os.path.join(path, image_filename)
 if label_filename is not None:
     label_filename = os.path.join(path, label_filename)
-if val_fraction > 0:
-    train_folder = os.path.join(output_path,"train")
-    test_folder = os.path.join(output_path,"test")
+
 
 if label_filename is not None:
     data, labels, classes = tube.data_preprocessing(image_filename=image_filename, label_filename=label_filename,
@@ -72,11 +71,62 @@ if val_fraction > 0:
     test_labels = labels[n_training_imgs:,...]
     
     # Save as numpy arrays
-    np.save(os.path.join(train_folder,str(output_name)+"train"),train_data)
-    np.save(os.path.join(train_folder,str(output_name)+"train_labels"),train_labels)
+    # Create folders
+    train_folder = os.path.join(output_path,"train")
+    if not os.path.exists(train_folder):
+        os.makedirs(train_folder)
+    test_folder = os.path.join(output_path,"test")
+    if not os.path.exists(test_folder):
+        os.makedirs(test_folder)
     
-    np.save(os.path.join(test_folder,str(output_name)+"test"),test_data)
-    np.save(os.path.join(test_folder,str(output_name)+"test_labels"),test_labels)
+    # Save train data
+    train_name=os.path.join(train_folder,str(output_name)+"_train")
+    header_folder=os.path.join(train_folder, "headers")
+    if not os.path.exists(header_folder):
+        os.makedirs(header_folder)
+    header_name=os.path.join(header_folder,str(output_name)+"_train_header")
+    
+    np.save(train_name,train_data)
+    np.save(str(train_name)+"_labels",train_labels)
+    header = DataHeader(ID=output_name, image_dims=train_labels.shape, image_filename=train_name, 
+                        label_filename=str(train_name)+"_labels")
+    header.save(headder_name)
+    print("Processed training data and header files saved to "+str(train_folder))
+    
+    # Save test data
+    test_name=os.path.join(train_folder,str(output_name)+"_test")
+    header_folder=os.path.join(test_folder, "headers")
+    if not os.path.exists(header_folder):
+        os.makedirs(header_folder)
+    header_name=os.path.join(header_folder,str(output_name)+"_test_header")
+    
+    np.save(test_name,test_data)
+    np.save(str(test_name)+"_labels",test_labels)
+    header = DataHeader(ID=output_name, image_dims=test_labels.shape, image_filename=test_name, 
+                        label_filename=str(test_name)+"_labels")
+    header.save(header_name)
+    print("Processed test data and header files saved to "+str(test_folder))
+    
 else:
+    header_folder=os.path.join(output_path, "headers")
+    if not os.path.exists(header_folder):
+        os.makedirs(header_folder)
+    header_name=os.path.join(header_folder,str(output_name)+"_header")
+    
+    # Save data as numpy array
     np.save(os.path.join(output_path, output_name), data)
-    if label_filename is not None: np.save(os.path.join(output_path, str(output_name)+"_labels"), labels)
+    
+    if label_filename is not None: 
+        # Save labels as numpy array
+        np.save(os.path.join(output_path, str(output_name)+"_labels"), labels)
+        header = DataHeader(ID=output_name, image_dims=labels.shape, image_filename=os.path.join(output_path, output_name),
+                            label_filename=os.path.join(output_path, str(output_name)+"_labels")
+        header.save(header_name)
+    else:
+        # Save header with label_filename=None
+        header = DataHeader(ID=output_name, image_dims=data.shape, image_filename=os.path.join(output_path, output_name),
+                            label_filename=None)
+        header.save(str(header_name)+'_header')
+    
+    print("Processed data and header files saved to "+str(output_path))
+        
