@@ -291,7 +291,7 @@ def recall(y_true, y_pred):
 def dice(y_true, y_pred):
     P = precision(y_true, y_pred)
     R = recall(y_true, y_pred)
-    dice = 2*(P*R)/(P+R)
+    dice = 2*(P*R)/(P+R+K.epsilon())
     return dice
 
 #Tian's metrics, use when y_true/y_pred are np arrays rather than keras tensors

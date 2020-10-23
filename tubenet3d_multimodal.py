@@ -117,7 +117,7 @@ if not prediction_only:
     #Callbacks
     schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
     filepath = os.path.join(model_path,"multimodal_checkpoint")
-    checkpoint = ModelCheckpoint(filepath, monitor='acc', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+    checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
