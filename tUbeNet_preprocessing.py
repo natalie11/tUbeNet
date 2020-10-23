@@ -10,7 +10,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 import tUbeNet_functions as tube
-from tUbeNet_functions import DataHeader
+from tUbeNet_classes import DataHeader
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -26,8 +26,8 @@ crop = True                         # crop images if there are large sections of
 """ Paths and filenames """
 # Data directory
 path = "F:\\Paired datasets"
-image_filename = "image_data\\filtered_dataset_crop.tif"
-label_filename = "image_labels\\filtered_dataset_Labels.tif"  # Set to None if not using labels
+image_filename = "image_data/filtered_dataset_crop.tif"
+label_filename = "image_labels/filtered_dataset_Labels.tif"  # Set to None if not using labels
 
 # Output directory
 output_path = "F:\\Paired datasets"
@@ -90,11 +90,11 @@ if val_fraction > 0:
     np.save(str(train_name)+"_labels",train_labels)
     header = DataHeader(ID=output_name, image_dims=train_labels.shape, image_filename=train_name, 
                         label_filename=str(train_name)+"_labels")
-    header.save(headder_name)
+    header.save(header_name)
     print("Processed training data and header files saved to "+str(train_folder))
     
     # Save test data
-    test_name=os.path.join(train_folder,str(output_name)+"_test")
+    test_name=os.path.join(test_folder,str(output_name)+"_test")
     header_folder=os.path.join(test_folder, "headers")
     if not os.path.exists(header_folder):
         os.makedirs(header_folder)
@@ -120,7 +120,7 @@ else:
         # Save labels as numpy array
         np.save(os.path.join(output_path, str(output_name)+"_labels"), labels)
         header = DataHeader(ID=output_name, image_dims=labels.shape, image_filename=os.path.join(output_path, output_name),
-                            label_filename=os.path.join(output_path, str(output_name)+"_labels")
+                            label_filename=os.path.join(output_path, str(output_name)+"_labels"))
         header.save(header_name)
     else:
         # Save header with label_filename=None

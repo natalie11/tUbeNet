@@ -21,7 +21,7 @@ from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 100			         	# number of1 epoch for training CNN
-steps_per_epoch = 1000		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
@@ -43,11 +43,11 @@ val_path = "F:\\Paired datasets\\test\\headers" # Set to None is not using valid
 
 # Model
 model_path = 'F:\\Paired datasets'
-model_filename = 'multimodal_cropped_100epochs_1000steps' # If using an exisiting model, else set to None
+model_filename = None # If not using an exisiting model, else set to None
 updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Oct5' # model will be saved under this name
 
 # Image output
-output_filename = 'F:\\Paired datasets\\prediction'
+output_filename = 'F:\\Paired datasets\\prediction_oct20'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -68,10 +68,10 @@ data_dir = DataDir([], image_dims=[],
 
 # Fill directory from headers
 for header in headers:
-    data_dir.list_IDs.append(header.modality)
+    data_dir.list_IDs.append(header.ID)
     data_dir.image_dims.append(header.image_dims)
-    data_dir.image_filenames.append(header.image_filename)
-    data_dir.label_filenames.append(header.label_filename)
+    data_dir.image_filenames.append(header.image_filename+'.npy')
+    data_dir.label_filenames.append(header.label_filename+'.npy')
     data_dir.data_type.append('float32')
 
 
@@ -150,10 +150,10 @@ if not prediction_only:
         
         # Fill directory from headers
         for header in headers:
-            val_dir.list_IDs.append(header.modality)
+            val_dir.list_IDs.append(header.ID)
             val_dir.image_dims.append(header.image_dims)
-            val_dir.image_filenames.append(header.image_filename)
-            val_dir.label_filenames.append(header.label_filename)
+            val_dir.image_filenames.append(header.image_filename+'.npy')
+            val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
         optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_filename)

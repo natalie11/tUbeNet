@@ -83,8 +83,7 @@ class DataGenerator(Sequence):
 	    X = np.empty((self.batch_size, *self.volume_dims))
 	    y = np.empty((self.batch_size, *self.volume_dims))
 	    for i, ID_temp in enumerate(list_IDs_temp):
-		    index=np.where(self.data_dir.list_IDs == ID_temp)
-		    index=index[0][0]
+		    index=self.data_dir.list_IDs.index(ID_temp)
                         
 		    vessels_present=False
 		    count=0
@@ -185,7 +184,15 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         ax.title.set_text('Labels')
         plt.axis("off")
 
-        image = self.plot_to_image(fig)
+        buf = io.BytesIO()
+        plt.savefig(buf,format='png')
+        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
+        plt.close(fig)
+        buf.seek(0)
+        image = tf.image.decode_png(buf.getvalue(),channels=4)
+        image = tf.expand_dims(image,0)
+        
+        return image
 
         with self.file_writer.as_default():
                 tf.summary.image("Example subvolume",image,step=epoch)
