@@ -74,4 +74,3 @@ When running the script, you should be able to monitor the training progress (ac
 To train from scratch, run 'tubenet_multimodal.py' with the options 'use_saved_model' and 'fine_tuning' set to False. Set 'path' to point to the directory containing the header files for your pre-processed image data & labels (produced by tubenet_preprocessing.py). Make sure 'prediction_only' is set to False. 
 
 When running the script, you should be able to monitor the training progress (accuracy, precision, recall and DICE score) using tensorboard. If you have provided validation data, the script will run a prediction on this validation data and produce a ROC curve.
-

@@ -15,26 +15,22 @@ join = os.path.join
 import datetime
 import json
 import io
+# kera utils
 from keras.utils import Sequence, to_categorical #np_utils
 from matplotlib import pyplot as plt
 import tensorflow as tf
 
-# set backend as tensor flow
-from tensorflow.keras import backend as K
-K.set_image_data_format('channels_last')
-
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
-    def __init__(self, modality=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
+    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
 	    'Initialization' 
-	    self.modality = modality
+	    self.ID = ID
 	    self.image_dims = image_dims
 	    self.image_filename = image_filename
 	    self.label_filename = label_filename
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
-
 
 class DataDir:
 	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64'):
@@ -66,20 +62,20 @@ class DataGenerator(Sequence):
 		return batches
 	
 	def __getitem__(self, index):
-	    'Generate one batch of data'
-	    # random.choices only available in python 3.6
-	    # randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
-	    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
-	    # Generate data
-	    X, y = self.__data_generation(list_IDs_temp)
+		'Generate one batch of data'
+		# random.choices only available in python 3.6
+		# randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
+		list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
+		# Generate data
+		X, y = self.__data_generation(list_IDs_temp)
 
-	    return X, y
+		return X, y
 	    
-	def on_epoch_end(self): #I don't think this is neccessary
+	def on_epoch_end(self):
 	    'Updates indexes after each epoch'
-#	    self.indexes = np.arange(len(self.data_dir.list_IDs))
-#	    if self.shuffle == True:
-#		    np.random.shuffle(self.indexes)
+	    self.indexes = np.arange(len(self.data_dir.list_IDs))
+	    if self.shuffle == True:
+		    np.random.shuffle(self.indexes)
 		    
 	def __data_generation(self, list_IDs_temp):
 	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
@@ -87,8 +83,7 @@ class DataGenerator(Sequence):
 	    X = np.empty((self.batch_size, *self.volume_dims))
 	    y = np.empty((self.batch_size, *self.volume_dims))
 	    for i, ID_temp in enumerate(list_IDs_temp):
-		    # Find index for data o be trained on 
-		    index=[k for k in range(len(self.data_dir.list_IDs)) if self.data_dir.list_IDs[k] == ID_temp][0] 
+		    index=self.data_dir.list_IDs.index(ID_temp)
                         
 		    vessels_present=False
 		    count=0
@@ -112,7 +107,6 @@ class DataGenerator(Sequence):
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
-        
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
     def __init__(self,log_dir=None):
@@ -127,7 +121,7 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
             for k,v in zip(logs.keys(),logs.values()):
                 # iterate through monitored metrics (k) and values (v)
                 tf.summary.scalar(k, v, step=epoch)
-        
+
 class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
     def __init__(self,generator,log_dir=None,index=0):
@@ -140,27 +134,39 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         self.index = index
         self.file_writer = tf.summary.create_file_writer(log_dir)
 
-    def on_epoch_end(self, epoch, logs={}, to_buffer=True):
+    def plot_to_image(fig):
+        # save image as png to memory, then convert to tensor (to allow display with tensorboard)
+        buf = io.BytesIO()
+        plt.savefig(buf,format='png')
+        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
+        plt.close(fig)
+        buf.seek(0)
+        image = tf.image.decode_png(buf.getvalue(),channels=4)
+        image = tf.expand_dims(image,0)
+        
+        return image
+    
+    def on_epoch_end(self, epoch, logs={}):
 
         self.x, self.y = self.data_generator.__getitem__(self.index)
         self.pred = self.model.predict(self.x)
-        
+
         sz = self.x.shape
- 
+
         # Take centre slice
         ind = int(sz[1]/2.)
 
         im = self.x[0,ind,:,:,0].squeeze()        
         pred_im = np.argmax(self.pred[0,ind,:,:,:],axis=-1)
         pred_imTrue = np.argmax(self.y[0,ind,:,:,:],axis=-1)
-        
+
         # Plot
         columns = 3
         rows = 1
 
         fsz = 5
         fig = plt.figure(figsize=(fsz*columns,fsz*rows))
-        
+
         i = 1
         ax = fig.add_subplot(rows, columns, i)
         plt.imshow(im)
@@ -179,20 +185,18 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         ax.title.set_text('Labels')
         plt.axis("off")
 
-        if to_buffer:
-            buf = io.BytesIO()
-            plt.savefig(buf,format='png')
-            plt.savefig('epoch'+str(epoch)+'_output.png')
-            plt.close(fig)
-            buf.seek(0)
-            image = tf.image.decode_png(buf.getvalue(),channels=4) # #buf.getvalue()
-            image = tf.expand_dims(image,0)
-            buf.close()
- 
-            with self.file_writer.as_default():
-                tf.summary.image("Images...",image,step=epoch)
-        else:
-            plt.show()
+        buf = io.BytesIO()
+        plt.savefig(buf,format='png')
+        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
+        plt.close(fig)
+        buf.seek(0)
+        image = tf.image.decode_png(buf.getvalue(),channels=4)
+        image = tf.expand_dims(image,0)
+        
+        return image
+
+        with self.file_writer.as_default():
+                tf.summary.image("Example subvolume",image,step=epoch)
     
 #from sklearn.metrics import roc_auc_score
 #from keras.callbacks import Callback
