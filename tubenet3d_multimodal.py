@@ -12,23 +12,28 @@ from functools import partial
 import numpy as np
 import datetime
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, SaveModelCallback
+from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+import tensorflow as tf
+
+gpus = tf.config.list_physical_devices('GPU')
+tf.config.set_visible_devices(gpus[0], 'GPU')
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# number of1 epoch for training CNN
+n_epochs = 500			         	# number of1 epoch for training CNN
 steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
-batch_size = 2		 	       	    # batch size for training CNN
+batch_size = 20		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
-dataset_weighting = (35,65,0)
+dataset_weighting = (100./3.,100./3.,100./3.,100./3.)
 
 # Training and prediction options
-use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
+resume = True                       # resume training with saved model
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
 save_model = True		        	# save model structure and weights? Yes=True, No=False
@@ -36,18 +41,20 @@ prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:\\Paired datasets\\train\\headers"
+#data_path = "F:\\Paired datasets\\train\\headers"
+data_path = "/mnt/data2/natalie_tubenet_data/train/headers"
 
 # Validation data
-val_path = "F:\\Paired datasets\\test\\headers" # Set to None is not using validation data
+#val_path = "F:\\Paired datasets\\test\\headers" # Set to None is not using validation data
+data_path = "/mnt/data2/natalie_tubenet_data/test/headers"
 
 # Model
-model_path = 'F:\\Paired datasets'
-model_filename = None # If not using an exisiting model, else set to None
+model_path = '/mnt/data2/natalie_tubenet_data/model2/'
+model_filename = 'multimodal_checkpoint.data-00001-of-00002' #None # If not using an exisiting model, else set to None
 updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Oct5' # model will be saved under this name
 
 # Image output
-output_filename = 'F:\\Paired datasets\\prediction_oct20'
+output_filename = '/mnt/data2/natalie_tubenet_data/prediction/'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -64,6 +71,8 @@ for file in header_filenames: #Iterate through header files
 data_dir = DataDir([], image_dims=[], 
                    image_filenames=[], 
                    label_filenames=[], 
+                   downsample_filenames=[],
+                   downsample_factor=[],
                    data_type=[])
 
 # Fill directory from headers
@@ -72,6 +81,8 @@ for header in headers:
     data_dir.image_dims.append(header.image_dims)
     data_dir.image_filenames.append(header.image_filename+'.npy')
     data_dir.label_filenames.append(header.label_filename+'.npy')
+    data_dir.downsample_filenames.append(header.downsample_filename+'.npy')
+    data_dir.downsample_factor.append(header.downsample_factor)
     data_dir.data_type.append('float32')
 
 
@@ -94,16 +105,22 @@ custom_loss.__module__ = tube.weighted_crossentropy.__module__
 # callbacks              
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
+lr_init = 1e-4
+lr_decay = 0.99
 
+#strategy = tf.distribute.MirroredStrategy()
+#with strategy.scope():
+if True:
+    metrics = ['accuracy', tube.recall, tube.precision, tube.dice]
+    #if use_saved_model:
+    #    # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
+    #    model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
+    #                         learning_rate=lr_init, n_gpus=2, loss=custom_loss, metrics=metrics,
+    #                         freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
+    #else:
 
-if use_saved_model:
-    # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
-                         freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
-else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+                                    n_gpus=2, learning_rate=lr_init, loss=custom_loss, metrics=metrics)
 
 """ Train and save model """
 if not prediction_only:
@@ -113,18 +130,31 @@ if not prediction_only:
     log_dir = (os.path.join(model_path,'logs'))
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
+    elif not resume: # Delete old logs if not resuming training
+        import shutil
+        shutil.rmtree(log_dir)
+        os.mkdir(log_dir)
         
     #Callbacks
-    schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+    schedule = partial(tube.piecewise_schedule, lr0=lr_init, decay=lr_decay)
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
     
+    savemodelCallback = SaveModelCallback(data_generator,path=model_path)
+    if use_saved_model:
+        wfile,initial_epoch = savemodelCallback.get_most_recent_saved_model()
+        model_gpu.load_weights(wfile)
+        if not resume:
+            initial_epoch = 0
+    else:
+        initial_epoch = 0
+    
     #Fit
-    history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+    history=model_gpu.fit(data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch,initial_epoch=initial_epoch, 
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback, savemodelCallback])
     
     # SAVE MODEL
     if save_model:
@@ -146,6 +176,8 @@ if not prediction_only:
         val_dir = DataDir([], image_dims=[], 
                            image_filenames=[], 
                            label_filenames=[], 
+                           downsample_filenames=[],
+                           downsample_factor=[],
                            data_type=[])
         
         # Fill directory from headers
@@ -155,6 +187,7 @@ if not prediction_only:
             val_dir.image_filenames.append(header.image_filename+'.npy')
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
+            val_dir.downsample_factor.append(header.downsample_factor)
         
         optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_filename)
 

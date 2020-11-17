@@ -12,17 +12,19 @@ import random
 import math
 
 # import required objects and fuctions from keras
-from keras.models import Model, model_from_json #load_model
+from tensorflow.keras.models import Model, model_from_json #load_model
 # CNN layers
-from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
+from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
-from keras.utils import multi_gpu_model, to_categorical #np_utils
+from tensorflow.keras.utils import multi_gpu_model, to_categorical #np_utils
 # opimiser
-from keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 # checkpoint
-from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
+from tensorflow.keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch
 import time
+
+from scipy import ndimage
 
 # import tensor flow
 import tensorflow as tf
@@ -30,6 +32,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing A
 # set backend and dim ordering (updated for keras 2.5/ tf 2, keras is now within tensorflow)
 K=tf.keras.backend
 K.set_image_data_format('channels_last')
+
+from tensorflow.python.framework import ops
+ops.reset_default_graph()
 
 
 import matplotlib.pyplot as plt
@@ -39,6 +44,7 @@ from PIL import Image
 from skimage import io
 from skimage.measure import block_reduce
 from sklearn.metrics import roc_auc_score, roc_curve, auc
+import nibabel as nib
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -51,8 +57,8 @@ def save_image(array, filename):
     image.save(filename)
 
 def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
-				  image_filename=None, label_filename=None, 
-				  coords=None, data_type='float64', offset=128):
+                  image_filename=None, label_filename=None, 
+                  coords=None, data_type='float64', offset=128):
   """Load a sub-volume of the 3D image. 
   These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
   Inputs: 
@@ -78,7 +84,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   for i in range(3):
     if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
       raise Exception('Volume dimensions out of range')
-	
+    
   if coords is not None:
     # check for sensible coordinates
     for i in range(3):
@@ -93,15 +99,15 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   
   # Set number of bytes per pixel, depending on data_type  
   if data_type == 'float64' or data_type == 'int64':
-	  pixel = 8
+      pixel = 8
   elif data_type == 'float32' or data_type == 'int32':
-	  pixel = 4
+      pixel = 4
   elif data_type == 'int16':
-	  pixel = 2
+      pixel = 2
   elif data_type == 'int8' or data_type == 'bool':
-	  pixel = 1
+      pixel = 1
   else: raise Exception('Data type not supported')
-	
+    
   # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
   y_offset = image_dims[2]*pixel
   z_offset = image_dims[1]*image_dims[2]*pixel
@@ -112,32 +118,145 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
     for x in range(volume_dims[1]):
         offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
         volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
-			 offset=offset_zx)
+             offset=offset_zx)
+             
+  if 'sim' in image_filename:
+      volume = augment_simulated_data(volume)
   
   # If labels_filename given, generate labels_volume using same coordinates
   if label_filename is not None:
       labels_volume = np.zeros(volume_dims)
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
-              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
+              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])#
+              #offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
                          offset=offset_zx)
       return volume, labels_volume
   else:
       return volume
 
+def augment_simulated_data(X):
+
+    dims = X.shape
+
+    # Blur vessels
+    sigma_rnd = np.random.uniform(0,10)
+    X = ndimage.gaussian_filter(X,sigma=sigma_rnd)
+    X = X*255/np.max(X) # renormalise
+     
+    rnd = np.random.uniform()
+    if rnd<0.33:
+        # Add background image
+        import cv2
+        src_path = '/home/simon/Downloads/2101.jpg'
+        img = cv2.imread(src_path)
+        img = img[0:512,0:512,0]
+        H,W = 512,512 #img.shape[:2]
+        xdrift,ydrift = X.shape[2],X.shape[2]
+        xb = (dims[0]/2) + xdrift, (H-1-dims[0]/2) - xdrift
+        yb = (dims[1]/2) + ydrift, (W-1-dims[2]/2) - ydrift
+        cx,cy = np.random.uniform(xb[0],xb[1]),np.random.uniform(yb[0],yb[1])
+        rx,ry = [int(cx-dims[0]/2),int(cx+dims[0]/2)], \
+                [int(cy-dims[1]/2),int(cy+dims[1]/2)]
+                
+        if rx[0]<0:
+            rem = np.abs(rx[0])
+            rx[0],rx[1] = 0,rx[1]+rem
+        if rx[1]>=img.shape[0]:
+            rem = np.abs(rx[1]-img.shape[0])
+            rx[0] -= rem
+            rx[1] = img.shape[0]
+            
+        if ry[0]<0:
+            rem = np.abs(ry[0])
+            ry[0],ry[1] = 0,ry[1]+rem
+        if ry[1]>=img.shape[1]:
+            rem = np.abs(ry[1]-img.shape[1])
+            ry[0] -= rem
+            ry[1] = img.shape[1]                  
+    
+        # Virtual camera object
+        from vcam import vcam,meshGen
+        c1 = vcam(H=H,W=W)
+        # Surface object
+        plane = meshGen(img.shape[0],img.shape[1])
+        # CNR
+        cnr = np.random.uniform(0.5,0.8)
+
+        for z in range(X.shape[2]):
+            xdr = int(z * xdrift/X.shape[2])
+            ydr = int(z * ydrift/X.shape[2])
+
+            a, b, c, d = 200.,0.1,1.,2.     
+            x0, y0 = z,z
+            plane.Z = a*np.exp(-c*(((plane.X-xdr*2)/plane.W)/b)**2)/(d*np.sqrt(2*np.pi)) + a*np.exp(-c*(((plane.Y-ydr*2)/plane.H)/b)**2)/(d*np.sqrt(2*np.pi))
+            pts3d = plane.getPlane()
+            pts2d = c1.project(pts3d)
+            map_x,map_y = c1.getMaps(pts2d)
+            img_w = cv2.remap(img,map_x,map_y,interpolation=cv2.INTER_LINEAR)
+            img_w = img_w[rx[0]+xdr:rx[1]+xdr,ry[0]+ydr:ry[1]+ydr]
+            img_w = img_w * np.max(X) * cnr / 255 # normalise and scale to CNR
+            alpha = X[:,:,z]/255
+            # Multiply the background with ( 1 - alpha )
+            background = (1.0 - alpha)*img_w
+            foreground = X[:,:,z]
+            X[:,:,z] = foreground + background
+            
+        if np.max(X)!=0: # normalise
+            X = X/np.max(X)
+            
+    elif rnd<0.66:
+        # Add a gradient
+        offset = np.random.normal(0,2,3)
+        x = np.linspace(-5+offset[0], 5+offset[0], dims[0])
+        y = np.linspace(-5+offset[1], 5+offset[1], dims[1])
+        z = np.linspace(-5+offset[2], 5+offset[2], dims[2])
+        xx, yy, zz = np.meshgrid(x, y, z, sparse=True)
+        rnd = np.random.uniform()
+        if rnd>0.5:
+            rnd = np.random.uniform()
+            if rnd<0.33:
+                gradient = xx
+            elif rnd<0.6:
+                gradient = yy
+            else:
+                gradient = zz
+        else:
+            gradient = (xx**2 + yy**2 + zz**2) #/ (xx**2 + yy**2)                    
+        gradient /= np.max(gradient)
+        mx = np.max(X)
+        if mx!=0:
+            gradient *= mx*np.random.uniform(0.01,0.8)
+        X = X + gradient
+        if mx!=0.:
+            X = X*mx / np.max(X)
+
+    #Add noise
+    mx = np.max(X)
+    try:
+        rnd_sd = np.random.uniform(0.,mx*0.1)
+    except Exception as e:
+        print(e)
+        import pdb
+        pdb.set_trace()
+    X = X + np.random.normal(0,rnd_sd,X.shape)
+    X = np.clip(X,0,mx+10)
+    
+    return X
+
 
 def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
   """Load a sub-volume of the 3D image. 
     These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
     Inputs: 
-    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
+        volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
+        image_stack = 3D image, preprocessed and given as np array (z,x,y)
+        labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
+        coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
     Outputs:
-    	volume = sub-section of the image array with dimensions equal to volume_dims
-    	labels_volume = corrosponding array of image labels (if labels provided)
+        volume = sub-section of the image array with dimensions equal to volume_dims
+        labels_volume = corrosponding array of image labels (if labels provided)
     """
   image_dims = image_stack.shape #image_dims[0] = z, [1] = x, [2] = y
   
@@ -150,7 +269,7 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=No
   for i in range(3):
     if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
       raise Exception('Volume dimensions out of range')
-	
+    
   if coords is not None:
     # check for sensible coordinates
     for i in range(3):
@@ -165,6 +284,9 @@ def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=No
   
   # Create volume from coordinates
   volume = image_stack[int(coords[0]):int(coords[0] + volume_dims[0]), int(coords[1]):int(coords[1] + volume_dims[1]), int(coords[2]):int(coords[2] + volume_dims[2])]
+  if 'sim' in image_filename:
+      #volume = augment_simulated_data(volume)
+      pass
   
   if labels is not None:
     # Create corrsponding labels
@@ -180,15 +302,15 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
                coords=None, n_classes=None, step_size=None): 
   """Load a batch of sub-volumes
     Inputs:
-    	batch size = number of image sub-volumes per batch (int, default 1)
-    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
-    	step_size = if loading volumes with pre-specified coordinates, this specifies the pixel distance between consecutive volumes 
-    			(equals volume_dims by default), (z,x,y) tuple of int
+        batch size = number of image sub-volumes per batch (int, default 1)
+        volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
+        image_stack = 3D image, preprocessed and given as np array (z,x,y)
+        labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
+        coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
+        step_size = if loading volumes with pre-specified coordinates, this specifies the pixel distance between consecutive volumes 
+                (equals volume_dims by default), (z,x,y) tuple of int
     Output:
-    	img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
+        img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
     
   # Format volume_dims as (z,x,y)
   if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
@@ -224,7 +346,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
         labels_batch.append(labels_volume)
     else:
       img_batch = []
-      for z in range(batch_size):			
+      for z in range(batch_size):            
         # Find coordinates
         tmp_coords = (coords[0]+ (step_size[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
         print('Loading image volume with coordinates:{}'.format(tmp_coords))
@@ -256,9 +378,9 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
         volume = volume.reshape(volume_dims[0], volume_dims[1], volume_dims[2], 1)
         img_batch.append(volume)
  
-	# Convert img_batch to np arrray
+    # Convert img_batch to np arrray
   img_batch = np.asarray(img_batch)
-	# Return either img_batch or img_batch and labels_batch   
+    # Return either img_batch or img_batch and labels_batch   
   if labels is not None:
     labels_batch = np.asarray(labels_batch)
     return img_batch, labels_batch
@@ -267,27 +389,29 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
+@tf.function(experimental_relax_shapes=True) 
 def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+    """Custom loss function - weighted to address class imbalance"""
+    weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
+    return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
 
 """Custom metrics"""
+@tf.function(experimental_relax_shapes=True) 
 def precision(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
     predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
     precision = true_positives / (predicted_positives + K.epsilon())
     return precision
 
-
+@tf.function(experimental_relax_shapes=True) 
 def recall(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
     recall = true_positives / (possible_positives + K.epsilon())
     return recall
 
+@tf.function(experimental_relax_shapes=True) 
 def dice(y_true, y_pred):
     P = precision(y_true, y_pred)
     R = recall(y_true, y_pred)
@@ -295,23 +419,26 @@ def dice(y_true, y_pred):
     return dice
 
 #Tian's metrics, use when y_true/y_pred are np arrays rather than keras tensors
+@tf.function(experimental_relax_shapes=True) 
 def precision_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false positive
-	FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
-	precision1=TP/(TP+FP)
-	return precision1
+    #true positive
+    TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
+    #false positive
+    FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
+    precision1=TP/(TP+FP)
+    return precision1
 
+@tf.function(experimental_relax_shapes=True) 
 def recall_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false negative
-	FN = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,0)))
-	recall1=TP/(TP+FN)
-	return recall1
+    #true positive
+    TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
+    #false negative
+    FN = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,0)))
+    recall1=TP/(TP+FN)
+    return recall1
 
 """Custom callbacks"""
+@tf.function(experimental_relax_shapes=True) 
 class TimeHistory(Callback):
     # Record time taken to perform each epoch
     def on_train_begin(self, logs={}):
@@ -323,6 +450,7 @@ class TimeHistory(Callback):
     def on_epoch_end(self, batch, logs={}):
         self.times.append(time.time() - self.epoch_time_start)
 
+@tf.function(experimental_relax_shapes=True) 
 class TimedStopping(Callback):
 #    From https://github.com/keras-team/keras/issues/1625
 #    Stop training when enough time has passed.
@@ -395,7 +523,7 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
     activ4 = LeakyReLU(alpha=0.2)(conv4)
     conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ4)
-    activ4 = LeakyReLU(alpha=0.2)(conv4)			
+    activ4 = LeakyReLU(alpha=0.2)(conv4)            
     pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
     drop4 = Dropout(0.5)(pool4)
     
@@ -457,12 +585,15 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         
     # create model on CPU
     if n_gpus is not None:
-        with tf.device("/cpu:0"):	
-    	    model = Model(inputs=[inputs], outputs=[conv12])
+        #with tf.device("/cpu:0"):    
+        #    model = Model(inputs=[inputs], outputs=[conv12])
+        #model_gpu = multi_gpu_model(model, gpus=n_gpus)
+        #model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics) 
         
         # tell model to run on multiple gpus
-        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
+        model_gpu = Model(inputs=[inputs], outputs=[conv12])    
         model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        model = model_gpu
         return model_gpu, model
     else:
         model = Model(inputs=[inputs], outputs=[conv12])
@@ -509,15 +640,15 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None,
 
  
 def piecewise_schedule(i, lr0, decay):
-	""" Learning rate function 
+    """ Learning rate function 
     Updates learning rate at end epoch.
     Inputs:
         i = training epoch (int)
         lr0 = initial learning rate (float)
         decay = decay rate (float)
     """
-	lr = lr0 * decay**(i)
-	return lr
+    lr = lr0 * decay**(i)
+    return lr
 
 # train model on image_stack and corrosponding labels
 # def train_model(model=None, model_gpu=None, 
@@ -555,41 +686,41 @@ def piecewise_schedule(i, lr0, decay):
       
 #     # Train for *n_rep* cycles of *n_epochs* epochs, loading a new batch of volumes every cycle
 #     for i in range(n_rep):
-# 	    print('Training cycle {}'.format(i))
+#         print('Training cycle {}'.format(i))
       
 #       # When loading a batch of volumes, check for the percentage of vessel pixels present and only train of volumes containing >0.01% vessels
 #       # These numbers may need to be changed depending on the vessel density in the data being analysed
-# 	    vessels_present = False
-# 	    while vessels_present==False:
-# 		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
+#         vessels_present = False
+#         while vessels_present==False:
+#             vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
 #                                            n_classes=n_classes, image_stack=image_stack, labels=labels)
-# 		    if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
-# 			    vessels_present = True
-# 		    else:
-# 			    del vol_batch, labels_batch
-# 			    
-# 	    # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
-# 	    if i % 5000 == 0 and i != 0:
-# 		    setLR(model_gpu, i, 'piecewise')
+#             if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
+#                 vessels_present = True
+#             else:
+#                 del vol_batch, labels_batch
+#                 
+#         # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
+#         if i % 5000 == 0 and i != 0:
+#             setLR(model_gpu, i, 'piecewise')
           
-# 	    # fit model
-# 	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
-# 	    
+#         # fit model
+#         model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
+#         
 #         # calculate metrics for validation data (every 400 training iterations)
-# 	    if i in range(6000,50001,400):
-# 		    if image_test is not None:
-# 			    training_cycle_list.append(i)
-# 			    print('start prediction')
-# 			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
+#         if i in range(6000,50001,400):
+#             if image_test is not None:
+#                 training_cycle_list.append(i)
+#                 print('start prediction')
+#                 predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
 #                                volume_dims=volume_dims, batch_size=batch_size, classes=classes,
 #                                accuracy_list=accuracy_list, precision_list=precision_list, recall_list=recall_list, 
 #                                save_output= False, binary_output=False, validation_output=True)
-# 			    print('end prediction')
+#                 print('end prediction')
                 
 #         # save model every 1000 iterations
-# 	    if i in range(1000,50001,1000):
-# 		    save_model(model, path, model_filename)
-# 		    
+#         if i in range(1000,50001,1000):
+#             save_model(model, path, model_filename)
+#             
 #     if output_filename is not None:
 #         # plot accuracy
 #         plt.plot(training_cycle_list,accuracy_list)
@@ -649,7 +780,7 @@ def predict_segmentation(model_gpu=None, data_dir=None,
       for i in range(3):
         if volume_dims[i]<=0 or volume_dims[i]>data_dir.image_dims[index][i]:
           raise Exception('Volume dimensions out of range')
-    	
+        
       if overlap is None:
         overlap=0
       for i in range(3):
@@ -673,12 +804,12 @@ def predict_segmentation(model_gpu=None, data_dir=None,
         # break if batch will go outside of range of image
         if (data_dir.image_dims[index][0]-z)<(batch_size*step_size[0]+overlap):
           break
-    			
+                
         for i in range (int(data_dir.image_dims[index][1]/step_size[1])):
           x = i*step_size[1] # x coordinate for batch
-    	
+        
           for j in range (int(data_dir.image_dims[index][2]/step_size[2])):
-            y = j*step_size[2] # y coordinate for batch		
+            y = j*step_size[2] # y coordinate for batch        
             
             # Create batch along z axis of image (axis 0 of image stack)
             vol = np.zeros((batch_size, *volume_dims))
@@ -686,8 +817,8 @@ def predict_segmentation(model_gpu=None, data_dir=None,
                 # Load data from file
                 vol[n, 0:volume_dims[0],...] = load_volume_from_file(volume_dims=volume_dims, image_dims=data_dir.image_dims[index],
                                        image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
-                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)						
-    			# predict segmentation using model
+                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)                        
+                # predict segmentation using model
             vol_pred_ohe = model_gpu.predict(vol,verbose=1) 
             del vol
       
@@ -708,13 +839,13 @@ def predict_segmentation(model_gpu=None, data_dir=None,
               overlap_region_bottom[n:n+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
     
               del overlap_region_top, unique_region  
-    	          
+                  
             del vol_pred_ohe
     #        # Append bottom overlap region if this is the last iteration in the z axis
     #        if k+1 >= int(((image_stack.shape[0]-volume_dims[0])/seg_pred.shape[0])+1):
     #          vol_pred_ohe_av_z = np.append(vol_pred_ohe_av_z,overlap_region_bottom, axis=0)
     
-    	      
+              
             # average overlapped region in x axis
             vol_pred_ohe_av_x = np.zeros((vol_pred_ohe_av_z.shape[0],step_size[1],vol_pred_ohe_av_z.shape[2],vol_pred_ohe_av_z.shape[3]))
             overlap_region_left = vol_pred_ohe_av_z[:,0:overlap,:,:]
@@ -751,7 +882,7 @@ def predict_segmentation(model_gpu=None, data_dir=None,
               vol_pred = np.zeros(vol_pred_ohe_av_y.shape[:-1])
               for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
                 vol_pred[class_pred==i] = cls
-    			
+                
               # add volume to seg_pred array
               seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred[:,:,:]
               
@@ -760,17 +891,17 @@ def predict_segmentation(model_gpu=None, data_dir=None,
               seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred_ohe_av_y[:,:,:,1]
     
                
-    	# save segmented images from this batch
+        # save segmented images from this batch
         if save_output==True:
           for im in range (seg_pred.shape[0]):
             filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+".tif")
             save_image(seg_pred[im,:,:], filename)
-					
+                    
 
 
 
-def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=None):
-	"""# Pre-processing
+def data_preprocessing(image_filename=None, downsample_factor=1, pad_array=None, crop_array=None):
+    """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
         image_filename = image filename (string)
@@ -783,67 +914,101 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
         classes = list of classes present in labels
     """
    # Load image
-	print('Loading images from '+str(image_filename))
-	img=io.imread(image_filename)
+    print('Loading images from '+str(image_filename))
+    
+    if len([x for x in ['.tif','.tiff','.jpg','.jpeg'] if x in image_filename])>0:
+        img=io.imread(image_filename)
+    elif len([x for x in ['.nii'] if x in image_filename])>0:    
+        im = nib.load(image_filename)
+        img = np.asarray(im.dataobj)
 
-	if len(img.shape)>3:
-	  print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
-	  img=img[:,:,:,0]
+    if len(img.shape)>3:
+      print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
+      img=img[:,:,:,0]
 
-	# Downsampling
-	if downsample_factor >1:
-	  print('Downsampling by a factor of {}'.format(downsample_factor))
-	  img=block_reduce(img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
-	  
-	# Normalise 
-	print('Rescaling data between 0 and 1')
-	img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
-	
-	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
-	# Set the images to 1024x1024 (2^10) arrays
-	if pad_array is not None:
-		print('Padding array')
-		xpad=(pad_array-img.shape[1])//2
-		ypad=(pad_array-img.shape[2])//2
-	
-		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
-		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
-		img=img_pad
-		print('Shape of padded image array: {}'.format(img_pad.shape))
-	
-	#Repeat for labels is present
-	if label_filename is not None:
-		print('Loading labels from '+str(label_filename))
-		seg=io.imread(label_filename)
-	
-		# Downsampling
-		if downsample_factor >1:
-		  print('Downsampling by a factor of {}'.format(downsample_factor))
-		  seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
-		  
-		# Normalise 
-		print('Rescaling data between 0 and 1')
-		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
-		
-		# Pad
-		if pad_array is not None:
-		  print('Padding array')
-		  seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
-		  seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
-		  seg=seg_pad
-		
-		# Find the number of unique classes in segmented training set
-		classes = np.unique(seg)
-		
-		return img, seg, classes
-	
-	return img
+    # Downsampling
+    if downsample_factor >1:
+      print('Downsampling by a factor of {}'.format(downsample_factor))
+      img=block_reduce(img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
+      
+    # Normalise 
+    print('Rescaling data between 0 and 1')
+    img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
+    
+    # Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
+    # Set the images to 1024x1024 (2^10) arrays
+    if pad_array is not None:
+        print('Padding array')
+        xpad=(pad_array-img.shape[1])//2
+        ypad=(pad_array-img.shape[2])//2
+    
+        img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float16')
+        img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
+        img=img_pad
+        print('Shape of padded image array: {}'.format(img_pad.shape))
+        
+    if crop_array is not None:
+        img = img[crop_array[0,0]:crop_array[0,1],crop_array[1,0]:crop_array[1,1],crop_array[2,0]:crop_array[2,1]]
+    
+    return img
+    
+def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None, crop_array=None):
+    """# Pre-processing
+    Load data, downsample if neccessary, normalise and pad.
+    Inputs:
+        image_filename = image filename (string)
+        label_filename = labels filename (string)
+        downsample_factor = factor by which to downsample in x and y dimensions (int, default 1)
+        pad_array = size to pad image to, should be able to be written as 2^n where n is an integer (int, default 1024)
+    Outputs:
+        img_pad = image data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
+        seg_pad = label data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
+        classes = list of classes present in labels
+    """
+    
+    print('Loading labels from '+str(label_filename))
+    if len([x for x in ['.tif','.tiff','.jpg','.jpeg'] if x in label_filename])>0:
+        seg=io.imread(label_filename)
+    elif len([x for x in ['.nii'] if x in label_filename])>0:    
+        im = nib.load(label_filename)
+        seg = np.asarray(im.dataobj)
+
+    # Downsampling
+    if downsample_factor >1:
+      print('Downsampling by a factor of {}'.format(downsample_factor))
+      seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
+      
+    # Normalise 
+    print('Rescaling data between 0 and 1')
+    mn,rng = np.min(seg), np.max(seg)-np.min(seg)
+    seg = (seg-mn)/rng
+    #import pdb
+    #pdb.set_trace()
+    #seg /= rng
+    
+    # Pad
+    if pad_array is not None:
+      print('Padding array')
+      #seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
+      #seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
+      #seg = seg_pad
+      seg = seg[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad]
+      
+    if crop_array is not None:
+      seg = seg[crop_array[0,0]:crop_array[0,1],crop_array[1,0]:crop_array[1,1],crop_array[2,0]:crop_array[2,1]]
+    
+    # Find the number of unique classes in segmented training set
+    #classes = np.unique(seg)
+    import pdb
+    pdb.set_trace()
+    
+    return seg, np.asarray([0,1])
 
 
 def load_saved_model(model_path=None, filename=None,
                      learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
-	"""# Load Saved Model
+    """# Load Saved Model
     Inputs:
         model_path = path of model to be opened (string)
         filename = model filename (string)
@@ -858,45 +1023,45 @@ def load_saved_model(model_path=None, filename=None,
         model_gpu = multi GPU model
         model = model on CPU (required for saving)
     """
-	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
-	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
-	print('Loading model')
-	# open json
-	json_file = open(jsonfile, 'r')
-	# load model from json
-	model_json = json_file.read()
-	json_file.close()
-	model = model_from_json(model_json, custom_objects={'tf':tf})
-	# load weights into new model
-	model.load_weights(mfile)
-	if fine_tuning:
-		model_gpu, model = fine_tuning(model=model, freeze_layers=freeze_layers, n_gpus=n_gpus, 
+    mfile = os.path.join(model_path,filename+'.h5') # file containing weights
+    jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
+    print('Loading model')
+    # open json
+    json_file = open(jsonfile, 'r')
+    # load model from json
+    model_json = json_file.read()
+    json_file.close()
+    model = model_from_json(model_json, custom_objects={'tf':tf})
+    # load weights into new model
+    model.load_weights(mfile)
+    if fine_tuning:
+        model_gpu, model = fine_tuning(model=model, freeze_layers=freeze_layers, n_gpus=n_gpus, 
                                  learning_rate=learning_rate, loss=loss, metrics=metrics)
-	else:
-		model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-		model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-	print('Template model structure')
-	model.summary()
-	print('GPU model structure')
-	model_gpu.summary()
-	return model_gpu, model
+    else:
+        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
+        model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+    print('Template model structure')
+    model.summary()
+    print('GPU model structure')
+    model_gpu.summary()
+    return model_gpu, model
 
 # SAVE MODEL
 def save_model(model, model_path, filename):
-	"""# Save Model as .json and .h5 (weights)
+    """# Save Model as .json and .h5 (weights)
     Inputs:
         model = model object
         model_path = path for model to be saved to (string)
         filename = model filename (string)
     """
-	mfile_new = os.path.join(model_path, filename+'.h5') # file containing weights
-	jsonfile_new = os.path.join(model_path, filename+'.json')
-	print('Saving model')
-	model_json = model.to_json()
-	with open(jsonfile_new, "w") as json_file:
-		json_file.write(model_json)
-		# serialize weights to HDF5
-	model.save_weights(mfile_new)
+    mfile_new = os.path.join(model_path, filename+'.h5') # file containing weights
+    jsonfile_new = os.path.join(model_path, filename+'.json')
+    print('Saving model')
+    model_json = model.to_json()
+    with open(jsonfile_new, "w") as json_file:
+        json_file.write(model_json)
+        # serialize weights to HDF5
+    model.save_weights(mfile_new)
 
 def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None): 
     optimal_thresholds = []
@@ -913,7 +1078,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
             for i in range (int(data_dir.image_dims[index][1]/volume_dims[1])):
               x = i*volume_dims[1] # x coordinate for batch
               for j in range (int(data_dir.image_dims[index][2]/volume_dims[2])):
-                y = j*volume_dims[2] # y coordinate for batch		
+                y = j*volume_dims[2] # y coordinate for batch        
                 print('Coordinates: ({},{},{})'.format(z,y,x))
                 # initialise batch and temp volume dimensions
                 X_test = np.zeros((batch_size, *volume_dims))
@@ -930,7 +1095,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                     # Load data from file
                     X_test[n, 0:volume_dims_temp[0],...], y_test[n, 0:volume_dims_temp[0],...] = load_volume_from_file(volume_dims=volume_dims_temp, image_dims=data_dir.image_dims[index],
                                    image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
-                                   coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)	
+                                   coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)    
 
                 # Run prediction
                 X_test=X_test.reshape(*X_test.shape, 1)
