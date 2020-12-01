@@ -16,9 +16,10 @@ import datetime
 import json
 import io
 # kera utils
-from keras.utils import Sequence, to_categorical #np_utils
 from matplotlib import pyplot as plt
 import tensorflow as tf
+Sequence = tf.keras.utils.Sequence 
+to_categorical = tf.keras.utils.to_categorical #np_utils
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
@@ -41,9 +42,8 @@ class DataDir:
 	    self.list_IDs = list_IDs
 	    self.data_type = data_type
 
-
 class DataGenerator(Sequence):
-	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None):
+    def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None):
 	    'Initialization'
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
@@ -53,59 +53,55 @@ class DataGenerator(Sequence):
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
 	    
-	def __len__(self):
-		'Denotes the number of batches per epoch'
-		batches = 0 
-		for i in range(len(self.data_dir.list_IDs)):
-		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
-		    batches += batches_per_dataset
-		return batches
-	
-	def __getitem__(self, index):
-		'Generate one batch of data'
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        batches = 0 
+        for i in range(len(self.data_dir.list_IDs)):
+            batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
+            batches += batches_per_dataset
+            return batches
+        
+    def __getitem__(self, index):
+        'Generate one batch of data'
 		# random.choices only available in python 3.6
 		# randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
-		list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
+        list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 		# Generate data
-		X, y = self.__data_generation(list_IDs_temp)
-
-		return X, y
+        X, y = self.__data_generation(list_IDs_temp)
+        return X, y
 	    
-	def on_epoch_end(self):
+    def on_epoch_end(self):
 	    'Updates indexes after each epoch'
 	    self.indexes = np.arange(len(self.data_dir.list_IDs))
 	    if self.shuffle == True:
 		    np.random.shuffle(self.indexes)
 		    
-	def __data_generation(self, list_IDs_temp):
-	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-	    # Initialization
-	    X = np.empty((self.batch_size, *self.volume_dims))
-	    y = np.empty((self.batch_size, *self.volume_dims))
-	    for i, ID_temp in enumerate(list_IDs_temp):
-		    index=self.data_dir.list_IDs.index(ID_temp)
-                        
-		    vessels_present=False
-		    count=0
-		    while vessels_present==False:
-	    	     # Generate random coordinates within dataset
-	    	     count = count+1
-	    	     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
-	    	     #print('coords_temp: {}'.format(coords_temp)) 
-	    	     # Generate data sub-volume at coordinates, add to batch
-	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
-                           image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
-                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
-	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
-	    	        vessels_present=True
+    def __data_generation(self, list_IDs_temp):
+        'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
+        # Initialization
+        X = np.empty((self.batch_size, *self.volume_dims))
+        y = np.empty((self.batch_size, *self.volume_dims))
+        for i, ID_temp in enumerate(list_IDs_temp):
+            index=self.data_dir.list_IDs.index(ID_temp)
+            coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
+                                  random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
+                                  random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
+            
+            # Generate data sub-volume at coordinates, add to batch
+            X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
+                                                image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
+                                                coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)
+	    	  
+	    	     
+	    	    
+	    	  	
+
                      
 	    # Reshape to add depth of 1
-	    X = X.reshape(*X.shape, 1)
+        X = X.reshape(*X.shape, 1)
 
 		
-	    return X, to_categorical(y, num_classes=self.n_classes)
+        return X, to_categorical(y, num_classes=self.n_classes)
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
@@ -122,81 +118,87 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
                 # iterate through monitored metrics (k) and values (v)
                 tf.summary.scalar(k, v, step=epoch)
 
-class ImageDisplayCallback(tf.keras.callbacks.Callback):
+# class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
-    def __init__(self,generator,log_dir=None,index=0):
-        super().__init__()
-        self.log_dir = log_dir
-        self.x = None
-        self.y = None
-        self.pred = None
-        self.data_generator = generator
-        self.index = index
-        self.file_writer = tf.summary.create_file_writer(log_dir)
+#     def __init__(self,generator,log_dir=None,index=0):
+#         super().__init__()
+#         self.log_dir = join(log_dir,'image')
+#         self.x = None
+#         self.y = None
+#         self.pred = None
+#         self.data_generator = generator
+#         self.index = index
+#         self.file_writer = tf.summary.create_file_writer(self.log_dir)
 
-    def plot_to_image(fig):
-        # save image as png to memory, then convert to tensor (to allow display with tensorboard)
-        buf = io.BytesIO()
-        plt.savefig(buf,format='png')
-        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
-        plt.close(fig)
-        buf.seek(0)
-        image = tf.image.decode_png(buf.getvalue(),channels=4)
-        image = tf.expand_dims(image,0)
+#     def plot_to_image(fig):
+#         # save image as png to memory, then convert to tensor (to allow display with tensorboard)
+#         buf = io.BytesIO()
+#         plt.savefig(buf,format='png')
+#         #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
+#         plt.close(fig)
+#         buf.seek(0)
+#         image = tf.image.decode_png(buf.getvalue(),channels=4)
+#         image = tf.expand_dims(image,0)
         
-        return image
+#         return image
     
-    def on_epoch_end(self, epoch, logs={}):
+#     def on_batch_end(self, batch, logs={}):
+    
+#         if batch%20!=0:
+#             return
 
-        self.x, self.y = self.data_generator.__getitem__(self.index)
-        self.pred = self.model.predict(self.x)
+#         # Plot
+#         columns = 3
+#         nexample = 3
+#         rows = nexample * 2
 
-        sz = self.x.shape
-
-        # Take centre slice
-        ind = int(sz[1]/2.)
-
-        im = self.x[0,ind,:,:,0].squeeze()        
-        pred_im = np.argmax(self.pred[0,ind,:,:,:],axis=-1)
-        pred_imTrue = np.argmax(self.y[0,ind,:,:,:],axis=-1)
-
-        # Plot
-        columns = 3
-        rows = 1
-
-        fsz = 5
-        fig = plt.figure(figsize=(fsz*columns,fsz*rows))
-
-        i = 1
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(im)
-        ax.title.set_text('Image')
-        plt.axis("off")
-
-        i = 2
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(pred_im)
-        ax.title.set_text('Predicted labels')
-        plt.axis("off")
-
-        i = 3
-        ax = fig.add_subplot(rows, columns, i)
-        plt.imshow(pred_imTrue)
-        ax.title.set_text('Labels')
-        plt.axis("off")
-
-        buf = io.BytesIO()
-        plt.savefig(buf,format='png')
-        #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
-        plt.close(fig)
-        buf.seek(0)
-        image = tf.image.decode_png(buf.getvalue(),channels=4)
-        image = tf.expand_dims(image,0)
+#         fsz = 5
+#         fig = plt.figure(figsize=(fsz*columns,fsz*rows))
         
-        return image
 
-        with self.file_writer.as_default():
-                tf.summary.image("Example subvolume",image,step=epoch)
+#         ii = 0 # plot count
+#         for i in [0,1]:
+#             pred = self.model.predict(self.x[i])
+
+#             for j in range(nexample):
+
+#                 # Choose slice (most vessel pixels)
+#                 predtrue = self.predTrue[i][j,:,:,:]
+#                 zdim = predtrue.shape[0] 
+#                 ind = np.argmax([np.sum(predtrue[k,:,:]) for k in range(zdim)])
+
+#                 im = self.x[i][j,ind,:,:,0].squeeze()        
+#                 pred_im = np.argmax(pred[j,ind,:,:,:],axis=-1)
+#                 pred_imTrue = self.predTrue[i][j,ind,:,:].squeeze()   #np.argmax(self.y[0,ind,:,:,:],axis=-1)
+            
+#                 ii += 1
+#                 ax = fig.add_subplot(rows, columns, ii)
+#                 plt.imshow(im)
+#                 ax.title.set_text(self.ids[i][j])
+#                 plt.axis("off")
+
+#                 ii += 1
+#                 ax = fig.add_subplot(rows, columns, ii)
+#                 plt.imshow(pred_im,vmin=0,vmax=1)
+#                 ax.title.set_text('Predicted labels')
+#                 plt.axis("off")
+
+#                 ii += 1
+#                 ax = fig.add_subplot(rows, columns, ii)
+#                 plt.imshow(pred_imTrue,vmin=0,vmax=1)
+#                 ax.title.set_text('Labels')
+#                 plt.axis("off")
+
+#         buf = io.BytesIO()
+#         plt.savefig(buf,format='png')
+#         #plt.savefig('F:\batch'+str(batch)+'_output.png')
+#         plt.close(fig)
+#         buf.seek(0)
+#         image = tf.image.decode_png(buf.getvalue(),channels=4)
+#         image = tf.expand_dims(image,0)
+
+#         with self.file_writer.as_default():
+#             tf.summary.image("Example subvolume",image,step=batch)
     
 #from sklearn.metrics import roc_auc_score
 #from keras.callbacks import Callback

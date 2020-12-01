@@ -12,15 +12,15 @@ import random
 import math
 
 # import required objects and fuctions from keras
-from keras.models import Model, model_from_json #load_model
+from tensorflow.keras.models import Model, model_from_json #load_model
 # CNN layers
-from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
+from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
-from keras.utils import multi_gpu_model, to_categorical #np_utils
+from tensorflow.keras.utils import multi_gpu_model, to_categorical #np_utils
 # opimiser
-from keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 # checkpoint
-from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
+from tensorflow.keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
 # import time for recording time for each epoch
 import time
 
@@ -744,27 +744,35 @@ def predict_segmentation(model_gpu=None, data_dir=None,
             # Append back overlap region if this is the last iteration in the y axis
     #        if j+1 >= int(image_stack.shape[2]/step_size[2]):
     #          vol_pred_ohe_av_y = np.append(vol_pred_ohe_av_y,overlap_region_back, axis=2)
-        
-            if binary_output==True:
-              # reverse one hot encoding
-              class_pred = np.argmax(vol_pred_ohe_av_y,axis=3) # find most probable class for each pixel
-              vol_pred = np.zeros(vol_pred_ohe_av_y.shape[:-1])
-              for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
+    
+            class_pred = np.argmax(vol_pred_ohe_av_y,axis=3) # find most probable class for each pixel
+            vol_pred = np.zeros(vol_pred_ohe_av_y.shape[:-1])
+            for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
                 vol_pred[class_pred==i] = cls
+                
+            seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred[:,:,:]
+    
+        
+            # if binary_output==True:
+            #   # reverse one hot encoding
+            #   class_pred = np.argmax(vol_pred_ohe_av_y,axis=3) # find most probable class for each pixel
+            #   vol_pred = np.zeros(vol_pred_ohe_av_y.shape[:-1])
+            #   for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
+            #     vol_pred[class_pred==i] = cls
     			
-              # add volume to seg_pred array
-              seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred[:,:,:]
+            #   # add volume to seg_pred array
+            #   seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred[:,:,:]
               
-            else:
-              # add volume to seg_pred array
-              seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred_ohe_av_y[:,:,:,1]
+            # else:
+            #   # add volume to seg_pred array
+            #   seg_pred[0:vol_pred_ohe_av_y.shape[0], x:(x+vol_pred_ohe_av_y.shape[1]), y:(y+vol_pred_ohe_av_y.shape[2])] = vol_pred_ohe_av_y[:,:,:,1]
     
                
     	# save segmented images from this batch
         if save_output==True:
           for im in range (seg_pred.shape[0]):
-            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+".tif")
-            save_image(seg_pred[im,:,:], filename)
+            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename))
+            np.save(filename, seg_pred[im,:,:])
 					
 
 
@@ -986,6 +994,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
         plt.show()
-        fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
+        fig.savefig(prediction_filename+'ROC_'+str(data_dir.list_IDs[index])+'.png')
 
     return optimal_thresholds, recall, precision

@@ -12,20 +12,20 @@ from functools import partial
 import numpy as np
 import datetime
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tUbeNet_classes import DataDir, DataGenerator, MetricDisplayCallback #, ImageDisplayCallback
+from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# number of1 epoch for training CNN
-steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 2		         	# number of1 epoch for training CNN
+steps_per_epoch = 50		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
-class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
-n_classes=2
-dataset_weighting = (35,65,0)
+class_weights = (1,1,1,1) 	        	# relative weighting of background to blood vessel classes
+n_classes=4
+dataset_weighting = (1,1,1,1)
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
@@ -36,18 +36,18 @@ prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:\\Paired datasets\\train\\headers"
+data_path = "F:\COVID-CNN\paired_datasets\headers"
 
 # Validation data
-val_path = "F:\\Paired datasets\\test\\headers" # Set to None is not using validation data
+val_path = "F:\COVID-CNN//validation_dataset\headers" # Set to None is not using validation data
 
 # Model
-model_path = 'F:\\Paired datasets'
+model_path = 'F:\COVID-CNN\paired_datasets'
 model_filename = None # If not using an exisiting model, else set to None
-updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Oct5' # model will be saved under this name
+updated_model_filename = 'COVID_test1_5epochs' # model will be saved under this name
 
 # Image output
-output_filename = 'F:\\Paired datasets\\prediction_oct20'
+output_filename = 'F:\COVID-CNN\predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -119,12 +119,12 @@ if not prediction_only:
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
-    imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
+    #imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
     
     #Fit
     history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
     
     # SAVE MODEL
     if save_model:
@@ -156,7 +156,9 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
-        optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_filename)
+        tube.predict_segmentation(model_gpu=model_gpu, data_dir=val_dir,
+                        volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
+                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_filename)
 
 else:
     """Predict segmentation only - non training"""

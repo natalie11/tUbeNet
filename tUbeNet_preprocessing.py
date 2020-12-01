@@ -20,18 +20,18 @@ downsample_factor = 1               # factor by which images are downsampled in 
 pad_array = None	           	    # size images are padded up to, set to None if not padding 
 
 # Note: these optios only work when labels are defined
-val_fraction = 0.25                 # fraction of data to use for validation, set 1 0 if not creating a validation set
-crop = True                         # crop images if there are large sections of background containing no vessels
+val_fraction = 0                 # fraction of data to use for validation, set 1 0 if not creating a validation set
+crop = False                         # crop images if there are large sections of background containing no vessels
 
 """ Paths and filenames """
 # Data directory
-path = "F:\\Paired datasets"
-image_filename = "image_data/filtered_dataset_crop.tif"
-label_filename = "image_labels/filtered_dataset_Labels.tif"  # Set to None if not using labels
+path = "F:\Dropbox\COVID_ML_data"
+image_filename = "Substack6.24um_FO-20.129-OL_column4_pag-0.02_0.06_bin2_-4.tif"
+label_filename = "Updated_segmentations\Substack6.24um_FO-20.129-OL_column4_pag-0.02_0.06_bin2_-4_prediction_updated_manual_round1.tif"  # Set to None if not using labels
 
 # Output directory
-output_path = "F:\\Paired datasets"
-output_name = "RSOM"
+output_path = "F:\COVID-CNN//validation_dataset"
+output_name = "stack_4"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
