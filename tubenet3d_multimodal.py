@@ -20,7 +20,7 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 10		         	# number of1 epoch for training CNN
+n_epochs = 5		         	# number of1 epoch for training CNN
 steps_per_epoch = 50		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 class_weights = (1,1,1,1) 	        	# relative weighting of background to blood vessel classes
@@ -103,7 +103,7 @@ if use_saved_model:
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.kappa])
+                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy'])
 
 """ Train and save model """
 if not prediction_only:
@@ -156,10 +156,10 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
-        multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None): 
-        multiclass_analysis(model=model_gpu, data_dir=val_dir,
+        
+        tube.multiclass_analysis(model=model_gpu, data_dir=val_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
-                        save_predictions= True, prediction_filename = 'prediction', path=output_path)
+                        save_prediction= True, prediction_filename = 'prediction', path=output_path)
 
 else:
     """Predict segmentation only - non training"""

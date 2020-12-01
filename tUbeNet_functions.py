@@ -835,8 +835,8 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		  seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
 		  
 		# Normalise 
-		print('Rescaling data between 0 and 1')
-		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
+		#print('Rescaling data between 0 and 1')
+		#seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
 		
 		# Pad
 		if pad_array is not None:
@@ -1007,7 +1007,7 @@ def multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch
     
     for index in range(0,len(data_dir.list_IDs)):
         print('Analysing '+str(data_dir.list_IDs[index])+' data')
-        y_pred_all = np.zeros(data_dir.image_dims[index])
+        y_pred_all = np.zeros((*data_dir.image_dims[index],len(classes)))
         y_test_all = np.zeros(data_dir.image_dims[index])                       
         for k in range(math.ceil(data_dir.image_dims[index][0]/(volume_dims[0]*batch_size))):
             # find z coordinates for batch
@@ -1048,18 +1048,17 @@ def multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch
                         y_test_crop = y_test[n, 0:max(iz)+1, ...] # use this to index y_test and y_pred
                         y_pred_crop = y_pred[n, 0:max(iz)+1, ...]
                         
-                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y:y+y_pred_crop.shape[2]]=y_pred_crop[...,1]
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y:y+y_pred_crop.shape[2],:]=y_pred_crop
                         y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test_crop.shape[0], x:x+y_test_crop.shape[1], y:y+y_test_crop.shape[2]]=y_test_crop
         
                     else:                
-                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred.shape[1], x:x+y_pred.shape[2], y:y+y_pred.shape[3]]=y_pred[n,...,1]
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred.shape[1], x:x+y_pred.shape[2], y:y+y_pred.shape[3],:]=y_pred[n,...]
                         y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test.shape[1], x:x+y_test.shape[2], y:y+y_test.shape[3]]=y_test[n,...]
         
               
         # Reverse OHE
-        y_test_all = np.argmax(y_test_all, axis=-1)
-        y_pred_all = np.argmax(y_pred_all, axis=-1)
-        
+        y_pred_all = y_pred_all.argmax(axis=3)
+        print(y_pred_all.shape)
         # print precision and recall
         class_report=classification_report(np.ravel(y_test_all), np.ravel(y_pred_all), digits=3)
         print(class_report)
@@ -1068,12 +1067,11 @@ def multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch
         
         # Save predicted segmentation      
         if save_prediction:
-            # threshold using optimal threshold
-            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
-            filename=os.pat.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index])+'_')
+ 
+            filename=os.path.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index])+'_')
             for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], filename+str(im+1)+'.tif')
-                save_image(y_test_all[im,:,:], filename+str(im+1)+'true.tif')
+                save_image(y_pred_all[im,:,:], (filename+str(im+1)+'.tif'))
+                save_image(y_test_all[im,:,:], (filename+str(im+1)+'true.tif'))
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
 
