@@ -47,7 +47,7 @@ model_filename = None # If not using an exisiting model, else set to None
 updated_model_filename = 'COVID_test1_5epochs' # model will be saved under this name
 
 # Image output
-output_filename = 'F:\COVID-CNN\predictions'
+output_path = 'F:\COVID-CNN\predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -103,7 +103,7 @@ if use_saved_model:
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.kappa])
 
 """ Train and save model """
 if not prediction_only:
@@ -128,7 +128,7 @@ if not prediction_only:
     
     # SAVE MODEL
     if save_model:
-    	tube.save_model(model, model_path, updated_model_filename)
+    	tube.save_model(model_gpu, model_path, updated_model_filename)
 
     """ Plot ROC """
     # Create directory of validation data
@@ -156,12 +156,13 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
-        tube.predict_segmentation(model_gpu=model_gpu, data_dir=val_dir,
+        multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None): 
+        multiclass_analysis(model=model_gpu, data_dir=val_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
-                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_filename)
+                        save_predictions= True, prediction_filename = 'prediction', path=output_path)
 
 else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model_gpu=model_gpu, data_dir=data_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1), 
-                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_filename)
+                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_path)
