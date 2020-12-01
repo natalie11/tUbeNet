@@ -38,7 +38,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from skimage import io
 from skimage.measure import block_reduce
-from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.metrics import roc_auc_score, roc_curve, auc, cohen_kappa_score, confusion_matrix, classification_report
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -293,6 +293,10 @@ def dice(y_true, y_pred):
     R = recall(y_true, y_pred)
     dice = 2*(P*R)/(P+R+K.epsilon())
     return dice
+
+def kappa(y_true, y_pred):
+    kappa=cohen_kappa_score(y_true, y_pred)
+    return kappa
 
 #Tian's metrics, use when y_true/y_pred are np arrays rather than keras tensors
 def precision_logical(y_true, y_pred):
@@ -998,3 +1002,79 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         fig.savefig(prediction_filename+'ROC_'+str(data_dir.list_IDs[index])+'.png')
 
     return optimal_thresholds, recall, precision
+
+def multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None, path=None): 
+    
+    for index in range(0,len(data_dir.list_IDs)):
+        print('Analysing '+str(data_dir.list_IDs[index])+' data')
+        y_pred_all = np.zeros(data_dir.image_dims[index])
+        y_test_all = np.zeros(data_dir.image_dims[index])                       
+        for k in range(math.ceil(data_dir.image_dims[index][0]/(volume_dims[0]*batch_size))):
+            # find z coordinates for batch
+            z = k*batch_size*volume_dims[0]   
+            for i in range (int(data_dir.image_dims[index][1]/volume_dims[1])):
+              x = i*volume_dims[1] # x coordinate for batch
+              for j in range (int(data_dir.image_dims[index][2]/volume_dims[2])):
+                y = j*volume_dims[2] # y coordinate for batch		
+                print('Coordinates: ({},{},{})'.format(z,y,x))
+                # initialise batch and temp volume dimensions
+                X_test = np.zeros((batch_size, *volume_dims))
+                y_test = np.zeros((batch_size, *volume_dims))
+                volume_dims_temp = list(volume_dims)
+                for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
+                    overspill = (n+1)*volume_dims[0]-(data_dir.image_dims[index][0]-z)+1
+                    if overspill>0 and overspill<volume_dims[0]:
+                        # Reduce volume dimensions for batch that would overflow data
+                        volume_dims_temp[0] = volume_dims_temp[0] - overspill
+                    elif overspill>=volume_dims[0]:
+                        # Do not load data for this batch
+                        break
+                    # Load data from file
+                    X_test[n, 0:volume_dims_temp[0],...], y_test[n, 0:volume_dims_temp[0],...] = load_volume_from_file(volume_dims=volume_dims_temp, image_dims=data_dir.image_dims[index],
+                                   image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
+                                   coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)	
+
+                # Run prediction
+                X_test=X_test.reshape(*X_test.shape, 1)
+                y_pred=model.predict(X_test,verbose=0)
+               
+                # Add postive class to stack
+                for n in range(y_pred.shape[0]):
+                    # Remove padded slices in z axis if necessary (ie. if volume_dims_temp has been updated to remove overspill)
+                    if volume_dims_temp[0] != volume_dims[0]:
+                        iz = np.where(X_test[n,...]!=0)[0] # find instances of non-zero values in X_test along axis 1
+                        if len(iz)==0:
+                            continue #if no non-zero values, continue to next iteration
+                        y_test_crop = y_test[n, 0:max(iz)+1, ...] # use this to index y_test and y_pred
+                        y_pred_crop = y_pred[n, 0:max(iz)+1, ...]
+                        
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y:y+y_pred_crop.shape[2]]=y_pred_crop[...,1]
+                        y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test_crop.shape[0], x:x+y_test_crop.shape[1], y:y+y_test_crop.shape[2]]=y_test_crop
+        
+                    else:                
+                        y_pred_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_pred.shape[1], x:x+y_pred.shape[2], y:y+y_pred.shape[3]]=y_pred[n,...,1]
+                        y_test_all[z+(n*volume_dims[0]):z+(n*volume_dims[0])+y_test.shape[1], x:x+y_test.shape[2], y:y+y_test.shape[3]]=y_test[n,...]
+        
+              
+        # Reverse OHE
+        y_test_all = np.argmax(y_test_all, axis=-1)
+        y_pred_all = np.argmax(y_pred_all, axis=-1)
+        
+        # print precision and recall
+        class_report=classification_report(np.ravel(y_test_all), np.ravel(y_pred_all), digits=3)
+        print(class_report)
+        kappa=cohen_kappa_score(np.ravel(y_test_all), np.ravel(y_pred_all))
+        print('Cohen kappa score: {}'.format(kappa))
+        
+        # Save predicted segmentation      
+        if save_prediction:
+            # threshold using optimal threshold
+            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+            filename=os.pat.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index])+'_')
+            for im in range(y_pred_all.shape[0]):
+                save_image(y_pred_all[im,:,:], filename+str(im+1)+'.tif')
+                save_image(y_test_all[im,:,:], filename+str(im+1)+'true.tif')
+            print('Predicted segmentation saved to {}'.format(prediction_filename))
+                
+
+    return kappa, class_report
