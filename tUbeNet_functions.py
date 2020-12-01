@@ -685,9 +685,10 @@ def predict_segmentation(model_gpu=None, data_dir=None,
             for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
                 # Load data from file
                 vol[n, 0:volume_dims[0],...] = load_volume_from_file(volume_dims=volume_dims, image_dims=data_dir.image_dims[index],
-                                       image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
+                                       image_filename=data_dir.image_filenames[index], label_filename=None, 
                                        coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)						
     			# predict segmentation using model
+            vol=vol.reshape(*vol.shape,1)
             vol_pred_ohe = model_gpu.predict(vol,verbose=1) 
             del vol
       
@@ -771,8 +772,8 @@ def predict_segmentation(model_gpu=None, data_dir=None,
     	# save segmented images from this batch
         if save_output==True:
           for im in range (seg_pred.shape[0]):
-            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename))
-            np.save(filename, seg_pred[im,:,:])
+            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+'.tif')
+            save_image(seg_pred[im,:,:],filename)
 					
 
 
