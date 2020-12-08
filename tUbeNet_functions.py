@@ -270,8 +270,14 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 
 def weighted_crossentropy(y_true, y_pred, weights):
 	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+	if weights is None: 
+		return K.categorical_crossentropy(y_true, y_pred,) # No weighting
+	else:
+		weight_mask = y_true[...,0]*weights[0]
+		for i in range(1,len(weights)):
+			weight_mask += y_true[...,i]*weights[i]
+		return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+
 
 
 """Custom metrics"""

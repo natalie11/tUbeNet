@@ -99,11 +99,11 @@ custom_loss.__module__ = tube.weighted_crossentropy.__module__
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
+                         learning_rate=1e-4, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy'])
+                                    n_gpus=2, learning_rate=1e-4, loss=custom_loss, metrics=['accuracy'])
 
 """ Train and save model """
 if not prediction_only:
@@ -115,7 +115,7 @@ if not prediction_only:
         os.makedirs(log_dir)
         
     #Callbacks
-    schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+    schedule = partial(tube.piecewise_schedule, lr0=1e-4, decay=0.95)
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
@@ -164,5 +164,5 @@ if not prediction_only:
 else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model_gpu=model_gpu, data_dir=data_dir,
-                        volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1), 
+                        volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
                         binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_path)
