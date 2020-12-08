@@ -20,10 +20,10 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 5		         	# number of1 epoch for training CNN
+n_epochs = 200	         	# number of1 epoch for training CNN
 steps_per_epoch = 50		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
-class_weights = (1,1,1,1) 	        	# relative weighting of background to blood vessel classes
+class_weights = (0.5,1,1,1) 	        	# relative weighting of background to blood vessel classes
 n_classes=4
 dataset_weighting = (1,1,1,1)
 
@@ -36,15 +36,15 @@ prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:\COVID-CNN\paired_datasets\headers"
+data_path = "F:\COVID-CNN\paired_dataset\headers"
 
 # Validation data
 val_path = "F:\COVID-CNN//validation_dataset\headers" # Set to None is not using validation data
 
 # Model
-model_path = 'F:\COVID-CNN\paired_datasets'
+model_path = 'F:\COVID-CNN\paired_dataset'
 model_filename = None # If not using an exisiting model, else set to None
-updated_model_filename = 'COVID_test1_5epochs' # model will be saved under this name
+updated_model_filename = 'COVID_test1_200epochs' # model will be saved under this name
 
 # Image output
 output_path = 'F:\COVID-CNN\predictions'
