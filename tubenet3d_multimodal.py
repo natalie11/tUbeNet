@@ -99,11 +99,11 @@ custom_loss.__module__ = tube.weighted_crossentropy.__module__
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-4, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
+                         learning_rate=1e-4, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.jaccard],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-4, loss=custom_loss, metrics=['accuracy'])
+                                    n_gpus=2, learning_rate=1e-4, loss=custom_loss, metrics=['accuracy', tube.jaccard])
 
 """ Train and save model """
 if not prediction_only:

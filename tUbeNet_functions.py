@@ -300,9 +300,11 @@ def dice(y_true, y_pred):
     dice = 2*(P*R)/(P+R+K.epsilon())
     return dice
 
-def kappa(y_true, y_pred):
-    kappa=cohen_kappa_score(y_true, y_pred)
-    return kappa
+def jaccard(y_true, y_pred, smooth=1):
+  intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3,4])
+  union = K.sum(y_true,[1,2,3,4])+K.sum(y_pred,[1,2,3,4])-intersection
+  iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
+  return iou
 
 #Tian's metrics, use when y_true/y_pred are np arrays rather than keras tensors
 def precision_logical(y_true, y_pred):
