@@ -23,7 +23,7 @@ volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in f
 n_epochs = 5		         	# number of1 epoch for training CNN
 steps_per_epoch = 3	        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
-class_weights = (0.5,1,1,1) 	        	# relative weighting of background to blood vessel classes
+class_weights = (0.5,1,1,1.5) 	        	# relative weighting of background to blood vessel classes
 n_classes=4
 dataset_weighting = (1,1,1,1)
 
