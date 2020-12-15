@@ -28,26 +28,26 @@ n_classes=4
 dataset_weighting = (1,1,1,1)
 
 # Training and prediction options
-use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
-save_model = True		        	# save model structure and weights? Yes=True, No=False
-prediction_only = False             # if True -> training is skipped
+save_model = False		        	# save model structure and weights? Yes=True, No=False
+prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:\COVID-CNN\paired_datasets\headers"
+data_path = "F:/COVID/train/headers"
 
 # Validation data
-val_path = "F:\COVID-CNN//validation_dataset\headers" # Set to None is not using validation data
+val_path = "F:/COVID/test/headers" # Set to None is not using validation data
 
 # Model
-model_path = 'F:\COVID-CNN\paired_datasets'
-model_filename = None # If not using an exisiting model, else set to None
-updated_model_filename = 'COVID_test1_5epochs' # model will be saved under this name
+model_path = 'F:/COVID/models'
+model_filename = 'COVID_test1_500epochs' # If not using an exisiting model, else set to None
+updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_path = 'F:\COVID-CNN\predictions'
+output_path = 'F:/COVID/predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -122,15 +122,7 @@ if not prediction_only:
     #imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
     
-    #Fit
-    history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
-    
-    # SAVE MODEL
-    if save_model:
-    	tube.save_model(model_gpu, model_path, updated_model_filename)
 
-    """ Plot ROC """
     # Create directory of validation data
     if val_path is not None:
         # Import data header
@@ -156,13 +148,23 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
+        val_generator=DataGenerator(val_dir, **params)
+        
+        # TRAIN with validation
+        history=model_gpu.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=100, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
         
         tube.multiclass_analysis(model=model_gpu, data_dir=val_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
                         save_prediction= True, prediction_filename = 'prediction', path=output_path)
-
+    else:
+        # TRAIN without validation
+        history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
+    # SAVE MODEL
+    if save_model:
+    	tube.save_model(model_gpu, model_path, updated_model_filename)
+    
 else:
-    """Predict segmentation only - non training"""
-    tube.predict_segmentation(model_gpu=model_gpu, data_dir=data_dir,
-                        volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
-                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_path)
+    """Predict segmentation only - no training"""
+    print('This section required updating for multiclass case')
