@@ -516,7 +516,6 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None,
     else:
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
         return model
-
  
 def piecewise_schedule(i, lr0, decay):
 	""" Learning rate function 
@@ -1074,10 +1073,8 @@ def multiclass_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch
         # Save predicted segmentation      
         if save_prediction:
  
-            filename=os.path.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index])+'_')
-            for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], (filename+str(im+1)+'.tif'))
-                save_image(y_test_all[im,:,:], (filename+str(im+1)+'true.tif'))
+            filename=os.path.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index]))
+            np.save(filename, y_pred_all)
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
 
