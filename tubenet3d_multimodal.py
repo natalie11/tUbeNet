@@ -21,33 +21,33 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 5		         	# number of1 epoch for training CNN
-steps_per_epoch = 50		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+steps_per_epoch = 3	        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
-class_weights = (1,1,1,1) 	        	# relative weighting of background to blood vessel classes
+class_weights = (0.5,1,1,1) 	        	# relative weighting of background to blood vessel classes
 n_classes=4
 dataset_weighting = (1,1,1,1)
 
 # Training and prediction options
-use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
 save_model = False		        	# save model structure and weights? Yes=True, No=False
-prediction_only = True             # if True -> training is skipped
+prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:/COVID/train/headers"
+data_path = r'F:\COVID-CNN\paired_dataset\headers'
 
 # Validation data
-val_path = "F:/COVID/test/headers" # Set to None is not using validation data
+val_path = r'F:\COVID-CNN\validation_dataset\headers' # Set to None is not using validation data
 
 # Model
-model_path = 'F:/COVID/models'
-model_filename = 'COVID_test1_500epochs' # If not using an exisiting model, else set to None
+model_path = r'F:\Dropbox\COVID_ML_data\COVID-CNN\paired_dataset'
+model_filename = r'COVID_test1_500epochs' # If not using an exisiting model, else set to None
 updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_path = 'F:/COVID/predictions'
+output_path = r'F:\COVID-CNN\predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -148,10 +148,16 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
-        val_generator=DataGenerator(val_dir, **params)
+        vparams = {'batch_size': batch_size,
+          'volume_dims': volume_dims, 
+          'n_classes': n_classes,
+          'dataset_weighting': [1],
+	       'shuffle': False}
+        
+        val_generator=DataGenerator(val_dir, **vparams)
         
         # TRAIN with validation
-        history=model_gpu.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=100, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+        history=model_gpu.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
         
         tube.multiclass_analysis(model=model_gpu, data_dir=val_dir,
