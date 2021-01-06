@@ -782,9 +782,8 @@ def predict_segmentation(model_gpu=None, data_dir=None,
                
     	# save segmented images from this batch
         if save_output==True:
-          for im in range (seg_pred.shape[0]):
-            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+'.tif')
-            save_image(seg_pred[im,:,:],filename)
+          filename=os.path.join(path, prediction_filename+'_'+str(data_dir.list_IDs[index]))
+          np.save(filename, seg_pred)
 					
 
 
