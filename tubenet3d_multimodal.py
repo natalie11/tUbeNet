@@ -173,4 +173,7 @@ if not prediction_only:
     
 else:
     """Predict segmentation only - no training"""
+    predict_segmentation(model_gpu=model_gpu, data_dir=data_dir, 
+                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1,2,3), 
+                         save_output= True, prediction_filename = 'prediction', path=output_path):
     print('This section required updating for multiclass case')
