@@ -57,7 +57,7 @@ def save_image(array, filename):
     image.save(filename)
 
 def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
-                  image_filename=None, label_filename=None, 
+                  image_filename=None, label_filename=None, midline_filename=None,
                   coords=None, data_type='float64', offset=128):
   """Load a sub-volume of the 3D image. 
   These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
@@ -113,7 +113,10 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   z_offset = image_dims[1]*image_dims[2]*pixel
   
   # Load data from file, one row at a time, using memmap
-  volume=np.zeros(volume_dims)
+  volume = np.zeros(volume_dims)
+  #import pdb
+  #pdb.set_trace()
+  #print('Header data type: {}, Actual data type:{}'.format(data_type,np.load(image_filename).dtype))
   for z in range(volume_dims[0]):
     for x in range(volume_dims[1]):
         offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
@@ -125,16 +128,33 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
   
   # If labels_filename given, generate labels_volume using same coordinates
   if label_filename is not None:
-      labels_volume = np.zeros(volume_dims)
+      #print('Label filaname: {}, data type:{}'.format(label_filename,np.load(label_filename).dtype))
+      labels_volume = np.zeros(volume_dims,dtype='int8')
       for z in range(volume_dims[0]):
           for x in range(volume_dims[1]):
               offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])#
               #offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
               labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
                          offset=offset_zx)
-      return volume, labels_volume
+
   else:
-      return volume
+      labels_volume = None
+      
+  if midline_filename is not None:     
+      #print('Midline filaname: {}, data type:{}'.format(midline_filename,np.load(midline_filename).dtype))
+      midline_volume = np.zeros(volume_dims,dtype='int8')
+      for z in range(volume_dims[0]):
+          for x in range(volume_dims[1]):
+              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])#
+              #offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
+              midline_volume[z,x,:]=np.memmap(midline_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
+                         offset=offset_zx)
+      
+                
+      if True: # combine midline and labels
+          labels_volume += midline_volume
+      
+  return volume, labels_volume
 
 def augment_simulated_data(X):
 
@@ -388,6 +408,47 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
     return img_batch
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+@tf.function(experimental_relax_shapes=True) 
+def weighted_categorical_crossentropy(weights):
+    #https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d
+    """
+    A weighted version of keras.objectives.categorical_crossentropy
+    
+    Variables:
+        weights: numpy array of shape (C,) where C is the number of classes
+    
+    Usage:
+        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+        loss = weighted_categorical_crossentropy(weights)
+        model.compile(loss=loss,optimizer='adam')
+    """
+    
+    weights = K.variable(weights)
+        
+    def loss(y_true, y_pred):
+        # scale predictions so that the class probas of each sample sum to 1
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        # clip to prevent NaN's and Inf's
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        # calc
+        loss = y_true * K.log(y_pred) * weights
+        loss = -K.sum(loss, -1)
+        return loss
+    
+    return loss
+    
+def precision_multi(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
+
+def recall_multi(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
 
 @tf.function(experimental_relax_shapes=True) 
 def weighted_crossentropy(y_true, y_pred, weights):
@@ -920,7 +981,7 @@ def data_preprocessing(image_filename=None, downsample_factor=1, pad_array=None,
         img=io.imread(image_filename)
     elif len([x for x in ['.nii'] if x in image_filename])>0:    
         im = nib.load(image_filename)
-        img = np.asarray(im.dataobj)
+        img = np.asarray(im.dataobj).squeeze()
 
     if len(img.shape)>3:
       print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
@@ -952,7 +1013,7 @@ def data_preprocessing(image_filename=None, downsample_factor=1, pad_array=None,
     
     return img
     
-def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None, crop_array=None):
+def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None, crop_array=None, binary=True):
     """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -971,7 +1032,7 @@ def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None
         seg=io.imread(label_filename)
     elif len([x for x in ['.nii'] if x in label_filename])>0:    
         im = nib.load(label_filename)
-        seg = np.asarray(im.dataobj)
+        seg = np.asarray(im.dataobj).squeeze()
 
     # Downsampling
     if downsample_factor >1:
@@ -979,12 +1040,12 @@ def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None
       seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
       
     # Normalise 
-    print('Rescaling data between 0 and 1')
-    mn,rng = np.min(seg), np.max(seg)-np.min(seg)
-    seg = (seg-mn)/rng
-    #import pdb
-    #pdb.set_trace()
-    #seg /= rng
+    if binary:
+        print('Converting labels to binary')
+        seg[seg>0] = 1
+    #print('Rescaling data between 0 and 1')
+    #mn,rng = np.min(seg), np.max(seg)-np.min(seg)
+    #seg = (seg-mn)/rng
     
     # Pad
     if pad_array is not None:
@@ -998,10 +1059,7 @@ def label_preprocessing(label_filename=None, downsample_factor=1, pad_array=None
       seg = seg[crop_array[0,0]:crop_array[0,1],crop_array[1,0]:crop_array[1,1],crop_array[2,0]:crop_array[2,1]]
     
     # Find the number of unique classes in segmented training set
-    #classes = np.unique(seg)
-    import pdb
-    pdb.set_trace()
-    
+    #classes = np.unique(seg)   
     return seg, np.asarray([0,1])
 
 

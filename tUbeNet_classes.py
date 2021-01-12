@@ -22,7 +22,7 @@ import tensorflow as tf
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
-    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None, downsample_filename=None,downsample_factor=1):
+    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None, midline_filename=None, downsample_filename=None,downsample_factor=1):
         'Initialization' 
         self.ID = ID
         self.image_dims = image_dims
@@ -30,21 +30,24 @@ class DataHeader:
         self.label_filename = label_filename
         self.downsample_filename = downsample_filename
         self.downsample_factor = downsample_factor
+        self.midline_filename = midline_filename
         
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 class DataDir:
-    def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, downsample_filenames=None, downsample_factor=1, data_type='float64'):
+    def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, midline_filenames=None, downsample_filenames=None, downsample_factor=1, data_type='float64'):
         'Initialization'    
         self.image_dims = image_dims
         self.image_filenames = image_filenames
         self.label_filenames = label_filenames
+        self.midline_filenames = midline_filenames
         self.downsample_filenames = downsample_filenames
         self.downsample_factor = downsample_factor
         self.list_IDs = list_IDs
         self.data_type = data_type
+        self.midline_filename = midline_filenames
 
 class DataGenerator(Sequence):
     def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None):
@@ -104,7 +107,7 @@ class DataGenerator(Sequence):
         for i, ID_temp in enumerate(list_IDs_temp):    
             index = self.data_dir.list_IDs.index(ID_temp)
             
-            downsample_store_check = [j for j,x in enumerate(downsample_store) if x['ID']==ID_temp]
+            downsample_store_check = [j for j,x in enumerate(downsample_store) if x['ID']==ID_temp] # Check if the downsampled data is already in memory. If not, load it.
             if len(downsample_store_check)==0:
                 downsample_filename = self.data_dir.downsample_filenames[index]
                 downsampled_data = np.load(downsample_filename)
@@ -114,43 +117,21 @@ class DataGenerator(Sequence):
                 downsampled_data = downsample_store[downsample_store_check[0]]['data']
                 downsample_factor = downsample_store[downsample_store_check[0]]['downsample_factor']
             
-            if True:
-                lab_inds = np.where(downsampled_data>np.product(downsample_factor)*0.05)
-                # Generate random coordinates within dataset
-                rnd_ind = int(np.random.uniform(0,len(lab_inds[0])))
-                centre_downsampled = np.asarray([lab_inds[0][rnd_ind], lab_inds[1][rnd_ind], lab_inds[2][rnd_ind]])
-                coords_temp = np.clip(np.asarray((centre_downsampled * downsample_factor) - np.asarray(self.volume_dims)/2),0,self.data_dir.image_dims[index]-np.asarray(self.volume_dims)).astype('int')
-                
-                image_filename = self.data_dir.image_filenames[index]
-                label_filename = self.data_dir.label_filenames[index]
-                data_type = self.data_dir.data_type[index]
-                image_dims = self.data_dir.image_dims[index]
+            lab_inds = np.where(downsampled_data>np.product(downsample_factor)*0.05)
+            # Generate random coordinates within dataset
+            rnd_ind = int(np.random.uniform(0,len(lab_inds[0])))
+            centre_downsampled = np.asarray([lab_inds[0][rnd_ind], lab_inds[1][rnd_ind], lab_inds[2][rnd_ind]])
+            coords_temp = np.clip(np.asarray((centre_downsampled * downsample_factor) - np.asarray(self.volume_dims)/2),0,self.data_dir.image_dims[index]-np.asarray(self.volume_dims)).astype('int')
+            
+            image_filename = self.data_dir.image_filenames[index]
+            label_filename = self.data_dir.label_filenames[index]
+            midline_filename = self.data_dir.midline_filenames[index]
+            data_type = self.data_dir.data_type[index]
+            image_dims = self.data_dir.image_dims[index]
 
-                X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=image_dims,
-                           image_filename=image_filename, label_filename=label_filename, 
-                           coords=coords_temp, data_type=data_type, offset=128)
-
-            else:
-                vessels_present=False
-                count=0
-                while vessels_present==False:
-                     # Generate random coordinates within dataset
-                     count = count+1
-                     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
-                        random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
-                        random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
-                     #print('coords_temp: {}'.format(coords_temp)) 
-                     # Generate data sub-volume at coordinates, add to batch
-                     image_filename = self.data_dir.image_filenames[index]
-                     label_filename = self.data_dir.label_filenames[index]
-                     data_type = self.data_dir.data_type[index]
-                     image_dims = self.data_dir.image_dims[index]
-
-                     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=image_dims,
-                               image_filename=image_filename, label_filename=label_filename, 
-                               coords=coords_temp, data_type=data_type, offset=128)    
-                     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
-                        vessels_present=True                    
+            X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=image_dims,
+                       image_filename=image_filename, label_filename=label_filename, midline_filename=midline_filename,
+                       coords=coords_temp, data_type=data_type, offset=128)
                      
         # Reshape to add depth of 1
         X = X.reshape(*X.shape, 1)
@@ -216,7 +197,7 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
             self.y.append(y)
             self.predTrue.append(np.argmax(self.y[-1],axis=-1))
             
-            sim = True
+            sim = False #True
             x, y = self.data_generator.__getitem__(0,sim=sim)
             self.ids.append(self.data_generator.last_IDs)
             self.x.append(x)
@@ -246,13 +227,13 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
                 ii += 1
                 ax = fig.add_subplot(rows, columns, ii)
-                plt.imshow(pred_im,vmin=0,vmax=1)
+                plt.imshow(pred_im,vmin=0,vmax=2)
                 ax.title.set_text('Predicted labels')
                 plt.axis("off")
 
                 ii += 1
                 ax = fig.add_subplot(rows, columns, ii)
-                plt.imshow(pred_imTrue,vmin=0,vmax=1)
+                plt.imshow(pred_imTrue,vmin=0,vmax=2)
                 ax.title.set_text('Labels')
                 plt.axis("off")
 
