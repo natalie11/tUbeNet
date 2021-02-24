@@ -121,9 +121,47 @@ if not prediction_only:
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
-    
-    #Fit
-    history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+        
+	# Create directory of validation data
+    if val_path is not None:
+        # Import data header
+        header_filenames=os.listdir(val_path)
+        headers = []
+        for file in header_filenames: #Iterate through header files
+            file=os.path.join(val_path,file)
+            with open(file, "rb") as f:
+                data_header = pickle.load(f) # Unpickle DataHeader object
+            headers.append(data_header) # Add to list of headers
+            
+        # Create empty data directory    
+        val_dir = DataDir([], image_dims=[], 
+                           image_filenames=[], 
+                           label_filenames=[], 
+                           data_type=[])
+        
+        # Fill directory from headers
+        for header in headers:
+            val_dir.list_IDs.append(header.ID)
+            val_dir.image_dims.append(header.image_dims)
+            val_dir.image_filenames.append(header.image_filename+'.npy')
+            val_dir.label_filenames.append(header.label_filename+'.npy')
+            val_dir.data_type.append('float32')
+        
+        vparams = {'batch_size': batch_size,
+          'volume_dims': volume_dims, 
+          'n_classes': n_classes,
+          'dataset_weighting': [1],
+	       'shuffle': False}
+        
+        val_generator=DataGenerator(val_dir, **vparams)
+        
+        # TRAIN with validation
+        history=model_gpu.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
+        
+    else:
+        # TRAIN without validation
+    	history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
     
     # SAVE MODEL
