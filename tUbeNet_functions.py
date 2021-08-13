@@ -33,9 +33,9 @@ K.set_image_data_format('channels_last')
 
 # set memory limit on gpu
 physical_devices = tf.config.list_physical_devices('GPU')
-n_gpus=len(physical_devices)
 try:
-  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+  for gpu in physical_devices:
+      tf.config.experimental.set_memory_growth(gpu, True)
 except:
   # Invalid device or cannot modify virtual devices once initialized.
   pass
@@ -699,8 +699,8 @@ def predict_segmentation(model=None, data_dir=None,
             for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
                 # Load data from file
                 vol[n, 0:volume_dims[0],...] = load_volume_from_file(volume_dims=volume_dims, image_dims=data_dir.image_dims[index],
-                                       image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
-                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)						
+                                       image_filename=data_dir.image_filenames[index], label_filename=None, 
+                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)[0] #only take first output						
     			# predict segmentation using model
             vol_pred_ohe = model.predict(vol,verbose=1) 
             vol_pred_ohe=vol_pred_ohe[0]

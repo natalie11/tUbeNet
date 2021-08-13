@@ -36,18 +36,18 @@ prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'C:/Users/Natal/Documents/CABI/Vessel data/preproc_data/headers'
+data_path = 'F:/Paired datasets/test/headers'
 
 # Validation data
 val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'C:/Users/Natal/Documents/CABI/Vessel data/models'
+model_path = 'F:/Paired datasets/models/sws'
 model_filename = 'model_epoch_4610' # If not using an exisiting model, else set to None
 updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_filename = 'C:/Users/Natal/Documents/CABI/Vessel data/predictions'
+output_filename = 'F:/Paired datasets/pred_sws'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
