@@ -25,29 +25,29 @@ steps_per_epoch = 100		        # total number of steps (batches of samples) to y
 batch_size = 2		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
-dataset_weighting = (35,65,0)
+dataset_weighting = (1)
 
 # Training and prediction options
-use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
-binary_output = False	           	# save as binary (True) or softmax (False)
-save_model = True		        	# save model structure and weights? Yes=True, No=False
-prediction_only = False             # if True -> training is skipped
+binary_output = True	           	# save as binary (True) or softmax (False)
+save_model = False		        	# save model structure and weights? Yes=True, No=False
+prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = "F:\\Paired datasets\\train\\headers"
+data_path = 'C:/Users/Natal/Documents/CABI/Vessel data/preproc_data/headers'
 
 # Validation data
-val_path = "F:\\Paired datasets\\test\\headers" # Set to None is not using validation data
+val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'F:\\Paired datasets'
-model_filename = None # If not using an exisiting model, else set to None
-updated_model_filename = 'multimodal_cropped_100epochs_1000steps_Oct5' # model will be saved under this name
+model_path = 'C:/Users/Natal/Documents/CABI/Vessel data/models'
+model_filename = 'model_epoch_4610' # If not using an exisiting model, else set to None
+updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_filename = 'F:\\Paired datasets\\prediction_oct20'
+output_filename = 'C:/Users/Natal/Documents/CABI/Vessel data/predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -71,7 +71,9 @@ for header in headers:
     data_dir.list_IDs.append(header.ID)
     data_dir.image_dims.append(header.image_dims)
     data_dir.image_filenames.append(header.image_filename+'.npy')
-    data_dir.label_filenames.append(header.label_filename+'.npy')
+    if header.label_filename is not None:
+        data_dir.label_filenames.append(header.label_filename+'.npy')
+    else: data_dir.label_filenames.append(header.label_filename)
     data_dir.data_type.append('float32')
 
 
@@ -95,15 +97,14 @@ custom_loss.__module__ = tube.weighted_crossentropy.__module__
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
 
-
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model_gpu, model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-5, n_gpus=2, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
+    model = tube.load_saved_model(model_path=model_path, filename=model_filename,
+                         learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
-    model_gpu, model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    n_gpus=2, learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+    model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
+                                    learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
 if not prediction_only:
@@ -156,12 +157,12 @@ if not prediction_only:
         val_generator=DataGenerator(val_dir, **vparams)
         
         # TRAIN with validation
-        history=model_gpu.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+        history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
         
     else:
         # TRAIN without validation
-    	history=model_gpu.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+    	history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
     
     # SAVE MODEL
@@ -194,10 +195,10 @@ if not prediction_only:
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
         
-        optimised_thresholds=tube.roc_analysis(model=model_gpu, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_filename)
+        optimised_thresholds=tube.roc_analysis(model=model, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, classes=(0,1), save_prediction=True, prediction_filename=output_filename)
 
 else:
     """Predict segmentation only - non training"""
-    tube.predict_segmentation(model_gpu=model_gpu, data_dir=data_dir,
+    tube.predict_segmentation(model=model, data_dir=data_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1), 
                         binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_filename)

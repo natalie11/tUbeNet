@@ -12,7 +12,7 @@ import random
 import math
 
 # import required objects and fuctions from keras
-from keras.models import Model, model_from_json #load_model
+from keras.models import Model, model_from_json
 # CNN layers
 from keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
@@ -31,6 +31,14 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing A
 K=tf.keras.backend
 K.set_image_data_format('channels_last')
 
+# set memory limit on gpu
+physical_devices = tf.config.list_physical_devices('GPU')
+n_gpus=len(physical_devices)
+try:
+  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+except:
+  # Invalid device or cannot modify virtual devices once initialized.
+  pass
 
 import matplotlib.pyplot as plt
 
@@ -348,15 +356,14 @@ class TimedStopping(Callback):
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
 
-def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64, 
-            n_gpus=None, learning_rate=1e-3, loss=None, metrics=['accuracy']):
+def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
+            learning_rate=1e-3, loss=None, metrics=['accuracy']):
     """tUbeNet model
     Inputs:
         n_classes = number of classes (int, default 2)
         input_height = hight of input image (int, default 64)
         input_width = width of input image (int, default 64)
         input_depth = depth of input image (int, default 64)
-        n_gpus = number of GPUs to train o, if not provided model will train on CPU (int, default None)
         learning_rate = learning rate (float, default 1e-3)
         loss = loss function, function or string
         metrics = training metrics, list of functions or strings
@@ -367,7 +374,9 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     Adapted from:
     https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
     """
-
+    physical_devices = tf.config.list_physical_devices('GPU')
+    n_gpus=len(physical_devices)
+    
     inputs = Input((input_depth, input_height, input_width, 1))
     conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(inputs)
     activ1 = LeakyReLU(alpha=0.2)(conv1)
@@ -455,22 +464,21 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     
     conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
         
-    # create model on CPU
-    if n_gpus is not None:
-        with tf.device("/cpu:0"):	
-    	    model = Model(inputs=[inputs], outputs=[conv12])
-        
-        # tell model to run on multiple gpus
-        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-        model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-        return model_gpu, model
+    # create and compile model
+    if n_gpus >1:
+        strategy = tf.distribute.MirroredStrategy()
+        print("Creating model on {} GPUs".format(n_gpus))
+        with strategy.scope():	
+    	    model = Model(inputs=[inputs], outputs=[conv12]) 
+    	    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
     else:
         model = Model(inputs=[inputs], outputs=[conv12])
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        
+    return model
 
 
-
-def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None, 
+def fine_tuning(model=None, n_classes=2, freeze_layers=0, 
                 learning_rate=1e-5, loss=None, metrics=['accuracy']):
     """ Fine Tuning
     Replaces classifer layer and freezes shallow layers for fine tuning
@@ -478,34 +486,40 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0, n_gpus=None,
         model = ML model
         n_classes = number of classes (int, default 2)
         freeze_layers = number of layers to freeze for training (int, default 0)
-        n_gpus = number of GPUs to train on, if undefined model will train on CPU (int, default None)
         learning_rate = learning rate (float, default 1e-5)
         loss = loss function, function or string
         metrics = training metrics, list of functions or strings
     Outputs:
         model = compiled model
-        model_gpu = compiled multi-GPU model
     """
-
+    #Count GPUs
+    physical_devices = tf.config.list_physical_devices('GPU')
+    n_gpus=len(physical_devices)
+    
     # recover the output from the last layer in the model and use as input to new Classifer
     last = model.layers[-2].output
     classifier = Conv3D(n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-    
     # rename new classifier layer to avoid error caused by layer having the same name as first layer of base model
-    
-    model = Model(inputs=[model.input], outputs=[classifier])
-    
+
     # freeze weights for selected layers
     for layer in model.layers[:freeze_layers]: layer.trainable = False
     
-    if n_gpus is not None:       
-        # tell model to run on multiple gpus
-        model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-        model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-        return model_gpu, model
+    if n_gpus >1:       
+        for layer in model.layers[:freeze_layers]: layer.trainable = False
+        strategy = tf.distribute.MirroredStrategy()
+        print("Creating model on {} GPUs".format(n_gpus))
+        with strategy.scope():	
+    	    model = Model(inputs=[model.input], outputs=[classifier])
+            # freeze weights for selected layers
+    	    for layer in model.layers[:freeze_layers]: layer.trainable = False
+    	    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
     else:
+        model = Model(inputs=[model.input], outputs=[classifier])
+        # freeze weights for selected layers
+        for layer in model.layers[:freeze_layers]: layer.trainable = False
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-        return model
+        
+    return model
 
  
 def piecewise_schedule(i, lr0, decay):
@@ -620,12 +634,12 @@ def piecewise_schedule(i, lr0, decay):
 
 
 # Get predicted segmentations (one hot encoded) for an image stack
-def predict_segmentation(model_gpu=None, data_dir=None, 
+def predict_segmentation(model=None, data_dir=None, 
                          volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
                          binary_output=True, save_output= True, prediction_filename = None, path=None): 
   """# Prediction
     Inputs:
-        model_gpu = ML model
+        model = ML model
         data_dir = directory of data (DataDir object)
         volume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
         batch_size = number of image sub volumes per batch int, default 2)
@@ -688,26 +702,27 @@ def predict_segmentation(model_gpu=None, data_dir=None,
                                        image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
                                        coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)						
     			# predict segmentation using model
-            vol_pred_ohe = model_gpu.predict(vol,verbose=1) 
+            vol_pred_ohe = model.predict(vol,verbose=1) 
+            vol_pred_ohe=vol_pred_ohe[0]
             del vol
       
             # average overlapped region in z axis
             vol_pred_ohe_av_z = np.zeros((seg_pred.shape[0],vol_pred_ohe.shape[2],vol_pred_ohe.shape[3],vol_pred_ohe.shape[4]))
             for n in range(batch_size):
-              # Define top overlapping region
-              overlap_region_top = vol_pred_ohe[n,0:overlap,:,:,:]
-              # If this is first iteration in z, average of overlapping region is just overal_region_top
-              if z==0: overlap_region_av = overlap_region_top
-              # Else, load the bottom overlapping region for the previous z coordinate with the same x and y coordinates
-              else: 
-                if (n-1)<0: overlap_region_av = (overlap_region_top+overlap_region_bottom[(batch_size-1):(batch_size-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2
-                else: overlap_region_av = (overlap_region_top+overlap_region_bottom[(n-1):(n-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2 
-              unique_region = vol_pred_ohe[n,overlap:step_size[0],:,:,:]
-              vol_pred_ohe_av_z[(n)*step_size[0]:(n)*step_size[0]+overlap,:,:,:] = overlap_region_av
-              vol_pred_ohe_av_z[(n)*step_size[0]+overlap:(n+1)*step_size[0],:,:,:] = unique_region
-              overlap_region_bottom[n:n+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
+                # Define top overlapping region
+                overlap_region_top = vol_pred_ohe[n,0:overlap,:,:,:]
+                # If this is first iteration in z, average of overlapping region is just overal_region_top
+                if z==0: overlap_region_av = overlap_region_top
+                # Else, load the bottom overlapping region for the previous z coordinate with the same x and y coordinates
+                else: 
+                    if (n-1)<0: overlap_region_av = (overlap_region_top+overlap_region_bottom[(batch_size-1):(batch_size-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2
+                    else: overlap_region_av = (overlap_region_top+overlap_region_bottom[(n-1):(n-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2 
+                unique_region = vol_pred_ohe[n,overlap:step_size[0],:,:,:]
+                vol_pred_ohe_av_z[(n)*step_size[0]:(n)*step_size[0]+overlap,:,:,:] = overlap_region_av
+                vol_pred_ohe_av_z[(n)*step_size[0]+overlap:(n+1)*step_size[0],:,:,:] = unique_region
+                overlap_region_bottom[n:n+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
     
-              del overlap_region_top, unique_region  
+                del overlap_region_top, unique_region  
     	          
             del vol_pred_ohe
     #        # Append bottom overlap region if this is the last iteration in the z axis
@@ -841,13 +856,12 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 
 
 def load_saved_model(model_path=None, filename=None,
-                     learning_rate=1e-3, n_gpus=2, loss=None, metrics=['accuracy'],
+                     learning_rate=1e-3, loss=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
 	"""# Load Saved Model
     Inputs:
         model_path = path of model to be opened (string)
         filename = model filename (string)
-        n_gpus = number of GPUs for multi GPU model
         fine_tuning = if 'True' model with be prepared for fine tuning with default settings (bool, default 'False')
         freese_layers = number of shallow layers that won't be trained if fine tuning (int, default none)
         n_classes = number of unique classes (int, default 2)
@@ -855,31 +869,49 @@ def load_saved_model(model_path=None, filename=None,
         metrics = metrics to be monitored during training (default 'accuracy') 
         learning_rate = learning rate for training (float, default 1e-3)
     Outputs:
-        model_gpu = multi GPU model
-        model = model on CPU (required for saving)
+        model = ML model
     """
-	mfile = os.path.join(model_path,filename+'.h5') # file containing weights
-	jsonfile = os.path.join(model_path,filename+'.json') # file containing model template in json format
-	print('Loading model')
-	# open json
-	json_file = open(jsonfile, 'r')
-	# load model from json
-	model_json = json_file.read()
-	json_file.close()
-	model = model_from_json(model_json, custom_objects={'tf':tf})
-	# load weights into new model
-	model.load_weights(mfile)
+	import tensorflow_addons as tfa
+	physical_devices = tf.config.list_physical_devices('GPU')
+	n_gpus=len(physical_devices)
+    
+    # create path for file containing weights
+	if os.path.isfile(os.path.join(model_path,filename+'.h5')):
+	    mfile = os.path.join(model_path,filename+'.h5') 
+	elif os.path.isfile(os.path.join(model_path,filename+'.hdf5')):
+	    mfile = os.path.join(model_path,filename+'.hdf5')
+	else: print("No model weights file found")
+    
+    # create path for file containing model template in json format
+	jsonfile = os.path.join(model_path,filename+'.json') 
+	with open(jsonfile, 'r') as json_file:
+    	# load model from json
+		model_json = json_file.read()
+        
 	if fine_tuning:
-		model_gpu, model = fine_tuning(model=model, freeze_layers=freeze_layers, n_gpus=n_gpus, 
+	    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
+	    # load weights into new model
+	    model.load_weights(mfile)
+	    model = fine_tuning(model=model, freeze_layers=freeze_layers, 
                                  learning_rate=learning_rate, loss=loss, metrics=metrics)
 	else:
-		model_gpu = multi_gpu_model(model, gpus=n_gpus) 
-		model_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-	print('Template model structure')
+	    if n_gpus>1:
+		    strategy = tf.distribute.MirroredStrategy()
+		    print("Creating model on {} GPUs".format(n_gpus))
+		    with strategy.scope():
+		    	model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
+		    	# load weights into new model
+		    	model.load_weights(mfile)
+		    	model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+	    else:
+		    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
+		    # load weights into new model
+		    model.load_weights(mfile)
+		    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+
+	print('Model Summary')
 	model.summary()
-	print('GPU model structure')
-	model_gpu.summary()
-	return model_gpu, model
+	return model
 
 # SAVE MODEL
 def save_model(model, model_path, filename):
