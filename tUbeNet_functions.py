@@ -700,7 +700,7 @@ def predict_segmentation(model=None, data_dir=None,
                 # Load data from file
                 vol[n, 0:volume_dims[0],...] = load_volume_from_file(volume_dims=volume_dims, image_dims=data_dir.image_dims[index],
                                        image_filename=data_dir.image_filenames[index], label_filename=None, 
-                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128)[0] #only take first output						
+                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128) #only take first output						
     			# predict segmentation using model
             vol_pred_ohe = model.predict(vol,verbose=1) 
             vol_pred_ohe=vol_pred_ohe[0]
