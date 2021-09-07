@@ -27,7 +27,7 @@ crop = False                         # crop images if there are large sections o
 # Data directory
 path = 'C:/Users/Natal/Documents/CABI/Vessel data/'
 image_filename = "LS_C1M3_yanan_4subsample.tif"
-label_filename = None  # Set to None if not using labels
+label_filename = "LS_C1M3_yanan_segmentation.tif"
 
 # Output directory
 output_path = "C:/Users/Natal/Documents/CABI/Vessel data/preproc_data"

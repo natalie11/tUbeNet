@@ -65,8 +65,10 @@ class DataGenerator(Sequence):
 		'Generate one batch of data'
 		# random.choices only available in python 3.6
 		# randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
-		list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
-		# Generate data
+		if len(self.data_dir.list_IDs)>2:
+		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
+		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
+        # Generate data
 		X, y = self.__data_generation(list_IDs_temp)
 
 		return X, y
