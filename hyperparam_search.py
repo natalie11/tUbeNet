@@ -110,15 +110,15 @@ if __name__ == '__main__':
     
     # Define search space
     space = dict()
-    space['lr'] = [0.0001, 0.001, 0.01, 0.1]
-    space['alpha'] = [0.0, 0.1, 0.2, 0.4]
-    space['dropout']=[0.0,0.1,0.2,0.4]
+    space['lr'] = [0.0001, 0.001, 0.01]
+    space['alpha'] = [0.1, 0.2, 0.4]
+    space['dropout']=[0.1,0.2,0.4]
     space['loss']=[custom_loss, 'catagorical_crossentropy']
     #optimizer = ['SGD', 'RMSprop', 'Adagrad', 'Adam', 'Nadam']
     #param_grid = dict(optimizer=optimizer)
     
     f1=make_scorer(f1_score)
-    search = RandomizedSearchCV(estimator=model, param_distributions=space, n_jobs=-1, cv=3, scoring=f1, verbose=10)
+    search = RandomizedSearchCV(estimator=model, n_iter=5, param_distributions=space, n_jobs=-2, cv=3, scoring=f1, verbose=10)
     result = search.fit(data_generator)
     
     
