@@ -25,7 +25,7 @@ import tensorflow as tf
 from tensorboard.plugins.hparams import api as hp
 import datetime
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
-
+import keras.backend as K
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -117,15 +117,28 @@ val_generator=DataGenerator(val_dir, **vparams)
 
 """ Build Model """
 # create partial for  to pass to complier
-custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-custom_loss.__name__ = "custom_loss" #partial doesn't copy name or module attribute from function
-custom_loss.__module__ = tube.weighted_crossentropy.__module__
+#custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
+#custom_loss.__name__ = "custom_loss" #partial doesn't copy name or module attribute from function
+#custom_loss.__module__ = tube.weighted_crossentropy.__module__
+
+def DiceBCELoss(targets, inputs, smooth=1e-6):    
+       
+    #flatten label and prediction tensors
+    inputs = K.flatten(inputs)
+    targets = K.flatten(targets)
+    
+    BCE = tf.keras.losses.binary_crossentropy(targets, inputs)
+    intersection = K.sum(K.dot(targets, inputs))    
+    dice_loss = 1 - (2*intersection + smooth) / (K.sum(targets) + K.sum(inputs) + smooth)
+    Dice_BCE = BCE + dice_loss
+    
+    return Dice_BCE
 
 # Define hparam space
 HP_LR = hp.HParam('learning_rate', hp.Discrete([0.001, 0.0005, 0.0001]))
-HP_DROPOUT = hp.HParam('dropout', hp.Discrete(0.1, 0.2, 0.3))
-HP_LOSS = hp.HParam('loss', hp.Discrete([custom_loss, 'catagorical_crossentropy']))
-HP_ALPHA = hp.HParam('dropout', hp.Discrete(0.1, 0.2, 0.3))
+HP_DROPOUT = hp.HParam('dropout', hp.Discrete([0.1, 0.2, 0.3]))
+HP_LOSS = hp.HParam('loss', hp.Discrete(['DiceBCELoss', 'catagorical_crossentropy']))
+HP_ALPHA = hp.HParam('alpha', hp.Discrete([0.1, 0.2, 0.3]))
 #HP_OPTIMIZER = hp.HParam('optimizer', hp.Discrete(['adam', 'sgd','rmsprop']))
 
 # Set metrics to log
