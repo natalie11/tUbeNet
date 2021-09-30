@@ -374,105 +374,101 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     Adapted from:
     https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
     """
-    physical_devices = tf.config.list_physical_devices('GPU')
-    n_gpus=len(physical_devices)
     
-    inputs = Input((input_depth, input_height, input_width, 1))
-    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(inputs)
-    activ1 = LeakyReLU(alpha=alpha)(conv1)
-    conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(activ1)
-    activ1 = LeakyReLU(alpha=alpha)(conv1)
-    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(activ1)
-    drop1 = Dropout(dropout)(pool1)   
+    def create_model_structure():
+        inputs = Input((input_depth, input_height, input_width, 1))
+        conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(inputs)
+        activ1 = LeakyReLU(alpha=alpha)(conv1)
+        conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(activ1)
+        activ1 = LeakyReLU(alpha=alpha)(conv1)
+        pool1 = MaxPooling3D(pool_size=(2, 2, 2))(activ1)
+        drop1 = Dropout(dropout)(pool1)   
+          
+        conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop1)
+        activ2 = LeakyReLU(alpha=alpha)(conv2)
+        conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ2)
+        activ2 = LeakyReLU(alpha=alpha)(conv2)
+        pool2 = MaxPooling3D(pool_size=(2, 2, 2))(activ2)
+        drop2 = Dropout(dropout)(pool2)
+         
+    
+        conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop2)
+        activ3 = LeakyReLU(alpha=alpha)(conv3)
+        conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ3)
+        activ3 = LeakyReLU(alpha=alpha)(conv3)
+        pool3 = MaxPooling3D(pool_size=(2, 2, 2))(activ3)
+        drop3 = Dropout(dropout)(pool3)
+        
+    
+        conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
+        activ4 = LeakyReLU(alpha=alpha)(conv4)
+        conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ4)
+        activ4 = LeakyReLU(alpha=alpha)(conv4)			
+        pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
+        drop4 = Dropout(dropout)(pool4)
+        
       
-    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop1)
-    activ2 = LeakyReLU(alpha=alpha)(conv2)
-    conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ2)
-    activ2 = LeakyReLU(alpha=alpha)(conv2)
-    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(activ2)
-    drop2 = Dropout(dropout)(pool2)
-     
-
-    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop2)
-    activ3 = LeakyReLU(alpha=alpha)(conv3)
-    conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ3)
-    activ3 = LeakyReLU(alpha=alpha)(conv3)
-    pool3 = MaxPooling3D(pool_size=(2, 2, 2))(activ3)
-    drop3 = Dropout(dropout)(pool3)
+        conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop4)
+        activ5 = LeakyReLU(alpha=alpha)(conv5)
+        conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ5)
+        activ5 = LeakyReLU(alpha=alpha)(conv5)
+        pool5 = MaxPooling3D(pool_size=(2, 2, 2))(activ5)    
+        drop5 = Dropout(dropout)(pool5)
+        
+          
+        conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop5)
+        activ6 = LeakyReLU(alpha=alpha)(conv6)
+        conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
+        activ6 = LeakyReLU(alpha=alpha)(conv6)
+        
     
-
-    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
-    activ4 = LeakyReLU(alpha=alpha)(conv4)
-    conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ4)
-    activ4 = LeakyReLU(alpha=alpha)(conv4)			
-    pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
-    drop4 = Dropout(dropout)(pool4)
+        up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(conv6), activ5], axis=4)    
+        conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
+        activ7 = LeakyReLU(alpha=alpha)(conv7)
+        conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ7)
+        activ7 = LeakyReLU(alpha=alpha)(conv7)   
     
-  
-    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop4)
-    activ5 = LeakyReLU(alpha=alpha)(conv5)
-    conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ5)
-    activ5 = LeakyReLU(alpha=alpha)(conv5)
-    pool5 = MaxPooling3D(pool_size=(2, 2, 2))(activ5)    
-    drop5 = Dropout(dropout)(pool5)
+        up8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ7), activ4], axis=4)
+        conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up8)
+        activ8 = LeakyReLU(alpha=alpha)(conv8)
+        conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ8)
+        activ8 = LeakyReLU(alpha=alpha)(conv8)
+        
     
-      
-    conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop5)
-    activ6 = LeakyReLU(alpha=alpha)(conv6)
-    conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
-    activ6 = LeakyReLU(alpha=alpha)(conv6)
+        up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ8), activ3], axis=4)
+        conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up9)
+        activ9 = LeakyReLU(alpha=alpha)(conv9)
+        conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ9)
+        activ9 = LeakyReLU(alpha=alpha)(conv9)
     
-#    # Global Feature Vector
-#    _,d,h,w,n = activ6._shape_tuple()
-#    ap = AveragePooling3D(pool_size=(d,h,w))(activ6)
-#    fl = Flatten()(ap)
-#    out = Dense(n,kernel_initializer=RandomNormal(stddev=0.02))(fl)
-#    out = Reshape((1,1,1,n))(out)
-#    out = Lambda(K.tile, arguments={'n':(1,d,h,w,1)})(out)
+        up10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ9), activ2], axis=4)
+        conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up10)
+        activ10 = LeakyReLU(alpha=alpha)(conv10)
+        conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ10)
+        activ10 = LeakyReLU(alpha=alpha)(conv10)
     
-
-    up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(conv6), activ5], axis=4)    
-    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
-    activ7 = LeakyReLU(alpha=alpha)(conv7)
-    conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ7)
-    activ7 = LeakyReLU(alpha=alpha)(conv7)   
-
-    up8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ7), activ4], axis=4)
-    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up8)
-    activ8 = LeakyReLU(alpha=alpha)(conv8)
-    conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ8)
-    activ8 = LeakyReLU(alpha=alpha)(conv8)
-    
-
-    up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ8), activ3], axis=4)
-    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up9)
-    activ9 = LeakyReLU(alpha=alpha)(conv9)
-    conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ9)
-    activ9 = LeakyReLU(alpha=alpha)(conv9)
-
-    up10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ9), activ2], axis=4)
-    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up10)
-    activ10 = LeakyReLU(alpha=alpha)(conv10)
-    conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ10)
-    activ10 = LeakyReLU(alpha=alpha)(conv10)
-
-    up11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ10), activ1], axis=4)
-    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up11)
-    activ11 = LeakyReLU(alpha=alpha)(conv11)
-    conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ11)    
-    activ11 = LeakyReLU(alpha=alpha)(conv11)
-    
-    conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
+        up11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ10), activ1], axis=4)
+        conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up11)
+        activ11 = LeakyReLU(alpha=alpha)(conv11)
+        conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ11)    
+        activ11 = LeakyReLU(alpha=alpha)(conv11)
+        
+        conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
+        
+        model = Model(inputs=[inputs], outputs=[conv12]) 
+        return model
         
     # create and compile model
+    physical_devices = tf.config.list_physical_devices('GPU')
+    n_gpus=len(physical_devices)
     if n_gpus >1:
         strategy = tf.distribute.MirroredStrategy()
         print("Creating model on {} GPUs".format(n_gpus))
         with strategy.scope():	
-    	    model = Model(inputs=[inputs], outputs=[conv12]) 
+    	    model=create_model_structure()
     	    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
     else:
-        model = Model(inputs=[inputs], outputs=[conv12])
+        model = create_model_structure()
         model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
         
     return model
