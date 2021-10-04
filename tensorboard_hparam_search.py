@@ -14,12 +14,12 @@ import numpy as np
 import random
 
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator#, ImageDisplayCallback, MetricDisplayCallback
-#from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tUbeNet_classes import DataDir, DataGenerator
 
 from sklearn.metrics import precision_recall_curve, f1_score, make_scorer
 
 from tensorflow import summary as tfs
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint,
 from tensorboard.plugins.hparams import api as hp
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -136,19 +136,20 @@ with tfs.create_file_writer('logs/hparam_tuning').as_default():
 
 
         
-def train_test_model(hparams, data_generator, val_generator):
+def train_test_model(hparams, data_generator, val_generator, callbacks):
   model = tube.tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
             learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice], 
             dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
   
-  model.fit(data_generator, epochs=10)
+  model.fit(data_generator, epochs=10, callbacks=callbacks)
   _, accuracy, recall, precision, dice = model.evaluate(val_generator)
   return accuracy, recall, precision, dice
 
 def run(run_dir, hparams, data_generator, val_generator):
+  callbacks = [TensorBoard(log_dir=run_dir+'/epoch_logs')]
   with tfs.create_file_writer(run_dir).as_default():
     hp.hparams(hparams)  # record the values used in this trial
-    accuracy, recall, precision, dice = train_test_model(hparams, data_generator, val_generator)
+    accuracy, recall, precision, dice = train_test_model(hparams, data_generator, val_generator, callbacks)
     tfs.scalar(METRIC_ACCURACY, accuracy, step=1)
     tfs.scalar(METRIC_RECALL, recall, step=1)
     tfs.scalar(METRIC_PRECISION, precision, step=1)
