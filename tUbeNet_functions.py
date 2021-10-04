@@ -10,6 +10,7 @@ import os
 import numpy as np
 import random
 import math
+from functools import partial
 
 # import required objects and fuctions from keras
 from keras.models import Model, model_from_json
@@ -281,6 +282,11 @@ def weighted_crossentropy(y_true, y_pred, weights):
 	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
 	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
+def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
+    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
+    dice_loss = dice(y_true, y_pred)
+    Dice_BCE = BCE + dice_loss
+    return Dice_BCE
 
 """Custom metrics"""
 def precision(y_true, y_pred):
@@ -357,7 +363,8 @@ class TimedStopping(Callback):
 #---------------------------------------------------------------------------------------------------------------------------------------------------
 
 def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
-            learning_rate=1e-3, loss=None, metrics=['accuracy'], dropout=0.25, alpha=0.2):
+            learning_rate=1e-3, loss=None, metrics=['accuracy'], dropout=0.25,
+            alpha=0.2, class_weights=(1,7)):
     """tUbeNet model
     Inputs:
         n_classes = number of classes (int, default 2)
@@ -391,14 +398,12 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         pool2 = MaxPooling3D(pool_size=(2, 2, 2))(activ2)
         drop2 = Dropout(dropout)(pool2)
          
-    
         conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop2)
         activ3 = LeakyReLU(alpha=alpha)(conv3)
         conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ3)
         activ3 = LeakyReLU(alpha=alpha)(conv3)
         pool3 = MaxPooling3D(pool_size=(2, 2, 2))(activ3)
         drop3 = Dropout(dropout)(pool3)
-        
     
         conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
         activ4 = LeakyReLU(alpha=alpha)(conv4)
@@ -406,7 +411,6 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         activ4 = LeakyReLU(alpha=alpha)(conv4)			
         pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
         drop4 = Dropout(dropout)(pool4)
-        
       
         conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop4)
         activ5 = LeakyReLU(alpha=alpha)(conv5)
@@ -414,13 +418,11 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         activ5 = LeakyReLU(alpha=alpha)(conv5)
         pool5 = MaxPooling3D(pool_size=(2, 2, 2))(activ5)    
         drop5 = Dropout(dropout)(pool5)
-        
           
         conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop5)
         activ6 = LeakyReLU(alpha=alpha)(conv6)
         conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
         activ6 = LeakyReLU(alpha=alpha)(conv6)
-        
     
         up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(conv6), activ5], axis=4)    
         conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
@@ -433,7 +435,6 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         activ8 = LeakyReLU(alpha=alpha)(conv8)
         conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ8)
         activ8 = LeakyReLU(alpha=alpha)(conv8)
-        
     
         up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ8), activ3], axis=4)
         conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up9)
@@ -456,20 +457,33 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
         
         model = Model(inputs=[inputs], outputs=[conv12]) 
-        return model
+        
+        if loss == 'weighted categorical crossentropy':
+            custom_loss=partial(weighted_crossentropy, weights=class_weights)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = weighted_crossentropy.__module__
+        elif loss == 'DICE BCE':
+            custom_loss=partial(DiceBCELoss,smooth=1e-6)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = DiceBCELoss.__module__
+        else:
+            print('Loss not recognised, using categorical crossentropy')
+            custom_loss='categorical_crossentropy'
+            
+        return model, custom_loss
         
     # create and compile model
     physical_devices = tf.config.list_physical_devices('GPU')
     n_gpus=len(physical_devices)
     if n_gpus >1:
-        strategy = tf.distribute.MirroredStrategy()
+        strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
         print("Creating model on {} GPUs".format(n_gpus))
         with strategy.scope():	
-    	    model=create_model_structure()
-    	    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+    	    model, custom_loss=create_model_structure()
+    	    model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
     else:
-        model = create_model_structure()
-        model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+        model, custom_loss = create_model_structure()
+        model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
         
     return model
 

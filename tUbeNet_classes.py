@@ -55,10 +55,10 @@ class DataGenerator(Sequence):
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
-		batches = 0 
-		for i in range(len(self.data_dir.list_IDs)):
-		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
-		    batches += batches_per_dataset
+		batches = 50 
+#		for i in range(len(self.data_dir.list_IDs)):
+#		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
+#		    batches += batches_per_dataset
 		return batches
 	
 	def __getitem__(self, index):

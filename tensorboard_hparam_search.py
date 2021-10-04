@@ -10,7 +10,6 @@ Created on Thu Aug 26 14:55:31 2021
 #Import libraries
 import os
 import pickle
-from functools import partial
 import numpy as np
 import random
 
@@ -19,25 +18,20 @@ from tUbeNet_classes import DataDir, DataGenerator#, ImageDisplayCallback, Metri
 #from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 
 from sklearn.metrics import precision_recall_curve, f1_score, make_scorer
-from sklearn.model_selection import KFold
 
-import tensorflow as tf
+from tensorflow import summary as tfs
 from tensorboard.plugins.hparams import api as hp
-import datetime
-from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
-import keras.backend as K
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# number of1 epoch for training CNN
-steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 3			         	# number of1 epoch for training CNN
 batch_size = 2		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
-dataset_weighting = (1)
+dataset_weighting = (4,6,1)
 
 # Training and prediction options
 binary_output = True	           	# save as binary (True) or softmax (False)
@@ -110,46 +104,34 @@ for header in headers:
 vparams = {'batch_size': batch_size,
   'volume_dims': volume_dims, 
   'n_classes': n_classes,
-  'dataset_weighting': [1],
+  'dataset_weighting': dataset_weighting,
 	       'shuffle': False}
 
 val_generator=DataGenerator(val_dir, **vparams)
 
 """ Build Model """
-# create partial for  to pass to complier
-#custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-#custom_loss.__name__ = "custom_loss" #partial doesn't copy name or module attribute from function
-#custom_loss.__module__ = tube.weighted_crossentropy.__module__
-
-def DiceBCELoss(targets, inputs, smooth=1e-6):    
-       
-    #flatten label and prediction tensors
-    inputs = K.flatten(inputs)
-    targets = K.flatten(targets)
-    
-    BCE = tf.keras.losses.binary_crossentropy(targets, inputs)
-    intersection = K.sum(K.dot(targets, inputs))    
-    dice_loss = 1 - (2*intersection + smooth) / (K.sum(targets) + K.sum(inputs) + smooth)
-    Dice_BCE = BCE + dice_loss
-    
-    return Dice_BCE
 
 # Define hparam space
 HP_LR = hp.HParam('learning_rate', hp.Discrete([0.001, 0.0005, 0.0001]))
 HP_DROPOUT = hp.HParam('dropout', hp.Discrete([0.1, 0.2, 0.3]))
-HP_LOSS = hp.HParam('loss', hp.Discrete(['DiceBCELoss', 'catagorical_crossentropy']))
+HP_LOSS = hp.HParam('loss', hp.Discrete(['DICE BCE', 'weighted categorical crossentropy']))
 HP_ALPHA = hp.HParam('alpha', hp.Discrete([0.1, 0.2, 0.3]))
 #HP_OPTIMIZER = hp.HParam('optimizer', hp.Discrete(['adam', 'sgd','rmsprop']))
 
 # Set metrics to log
 METRIC_ACCURACY = 'accuracy'
+METRIC_RECALL = 'recall'
+METRIC_PRECISION = 'precision'
+METRIC_DICE = 'DICE'
 
 
-
-with tf.summary.create_file_writer('logs/hparam_tuning').as_default():
+with tfs.create_file_writer('logs/hparam_tuning').as_default():
   hp.hparams_config(
     hparams=[HP_LR, HP_DROPOUT, HP_LOSS, HP_ALPHA],
-    metrics=[hp.Metric(METRIC_ACCURACY, display_name='Accuracy')],
+    metrics=[hp.Metric(METRIC_ACCURACY, display_name='Accuracy'),
+    hp.Metric(METRIC_RECALL, display_name='Recall'),
+    hp.Metric(METRIC_PRECISION, display_name='Precision'),
+    hp.Metric(METRIC_DICE, display_name='DICE')],
   )
 
 
@@ -159,20 +141,23 @@ def train_test_model(hparams, data_generator, val_generator):
             learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice], 
             dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
   
-  model.fit(data_generator, epochs=1)
-  _, accuracy = model.evaluate(val_generator)
-  return accuracy
+  model.fit(data_generator, epochs=10)
+  _, accuracy, recall, precision, dice = model.evaluate(val_generator)
+  return accuracy, recall, precision, dice
 
 def run(run_dir, hparams, data_generator, val_generator):
-  with tf.summary.create_file_writer(run_dir).as_default():
+  with tfs.create_file_writer(run_dir).as_default():
     hp.hparams(hparams)  # record the values used in this trial
-    accuracy = train_test_model(hparams, data_generator, val_generator)
-    tf.summary.scalar(METRIC_ACCURACY, accuracy, step=1)
+    accuracy, recall, precision, dice = train_test_model(hparams, data_generator, val_generator)
+    tfs.scalar(METRIC_ACCURACY, accuracy, step=1)
+    tfs.scalar(METRIC_RECALL, recall, step=1)
+    tfs.scalar(METRIC_PRECISION, precision, step=1)
+    tfs.scalar(METRIC_DICE, dice, step=1)
 
 """ Conduct search """        
 session_num = 0
 
-for session_num in range(6):
+for session_num in range(5):
     
     lr = random.choice(HP_LR.domain.values)
     dropout = random.choice(HP_DROPOUT.domain.values)
