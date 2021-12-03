@@ -1,0 +1,21 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: tUbeNet
+message: Use this file to cite any uses of this ML mode
+type: software
+authors:
+  - given-names: Natalie Aroha
+    family-names: Holroyd
+    email: natalie.holroyd.16@ucl.ac.uk
+    affiliation: University College London
+    orcid: 'https://orcid.org/0000-0001-9174-1346'
+  - given-names: Claire
+    family-names: Walsh
+    affiliation: University College London
+    orcid: 'https://orcid.org/0000-0003-3769-3392'
+  - given-names: Simon
+    family-names: Walker-Samuel
+    affiliation: University College London
+    orcid: 'https://orcid.org/0000-0003-3530-9166'
