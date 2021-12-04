@@ -23,9 +23,11 @@ volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in f
 n_epochs = 100			         	# number of1 epoch for training CNN
 steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
-class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
-dataset_weighting = (1)
+dataset_weighting = None
+
+loss = "DICE BCE"	        	   # "DICE BCE" or "weighted categorical crossentropy"
+class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
@@ -88,11 +90,6 @@ data_generator=DataGenerator(data_dir, **params)
 
 
 """ Load or Build Model """
-# create partial for  to pass to complier
-custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-custom_loss.__module__ = tube.weighted_crossentropy.__module__
-
 # callbacks              
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
@@ -100,11 +97,12 @@ custom_loss.__module__ = tube.weighted_crossentropy.__module__
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision],
+                         learning_rate=1e-5, loss=loss, class_weights=class_weights, metrics=['accuracy', tube.recall, tube.precision],
                          freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
 else:
     model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    learning_rate=1e-5, loss=custom_loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+                                    learning_rate=1e-5, loss=loss, class_weights=class_weights,
+                                    metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
 if not prediction_only:

@@ -19,7 +19,7 @@ from tUbeNet_classes import DataDir, DataGenerator
 from sklearn.metrics import precision_recall_curve, f1_score, make_scorer
 
 from tensorflow import summary as tfs
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint,
+from tensorflow.keras.callbacks import TensorBoard
 from tensorboard.plugins.hparams import api as hp
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -112,7 +112,7 @@ val_generator=DataGenerator(val_dir, **vparams)
 """ Build Model """
 
 # Define hparam space
-HP_LR = hp.HParam('learning_rate', hp.Discrete([0.001, 0.0005, 0.0001]))
+HP_LR = hp.HParam('learning_rate', hp.Discrete([0.001, 0.0001, 0.00001]))
 HP_DROPOUT = hp.HParam('dropout', hp.Discrete([0.1, 0.2, 0.3]))
 HP_LOSS = hp.HParam('loss', hp.Discrete(['DICE BCE', 'weighted categorical crossentropy']))
 HP_ALPHA = hp.HParam('alpha', hp.Discrete([0.1, 0.2, 0.3]))
@@ -141,7 +141,7 @@ def train_test_model(hparams, data_generator, val_generator, callbacks):
             learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice], 
             dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
   
-  model.fit(data_generator, epochs=10, callbacks=callbacks)
+  model.fit(data_generator, epochs=100, callbacks=callbacks)
   _, accuracy, recall, precision, dice = model.evaluate(val_generator)
   return accuracy, recall, precision, dice
 
@@ -158,7 +158,7 @@ def run(run_dir, hparams, data_generator, val_generator):
 """ Conduct search """        
 session_num = 0
 
-for session_num in range(5):
+for session_num in range(10):
     
     lr = random.choice(HP_LR.domain.values)
     dropout = random.choice(HP_DROPOUT.domain.values)

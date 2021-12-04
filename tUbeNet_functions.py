@@ -284,8 +284,8 @@ def weighted_crossentropy(y_true, y_pred, weights):
 
 def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
     BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice_loss = dice(y_true, y_pred)
-    Dice_BCE = BCE + dice_loss
+    dice_loss = 1-dice(y_true, y_pred)
+    Dice_BCE = (BCE + dice_loss)/2
     return Dice_BCE
 
 """Custom metrics"""
