@@ -17,7 +17,7 @@ join = os.path.join
 import io
 from matplotlib import pyplot as plt
 import tensorflow as tf
-from tf.keras.utils import Sequence, to_categorical #np_utils
+from tensorflow.keras.utils import Sequence, to_categorical #np_utils
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
     def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
