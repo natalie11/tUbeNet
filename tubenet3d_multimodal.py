@@ -20,7 +20,7 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# number of1 epoch for training CNN
+n_epochs = 100			         	# number of epoch for training CNN
 steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
