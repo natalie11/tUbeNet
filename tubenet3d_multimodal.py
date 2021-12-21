@@ -13,7 +13,7 @@ import numpy as np
 import datetime
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tf.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -30,18 +30,18 @@ loss = "DICE BCE"	        	   # "DICE BCE" or "weighted categorical crossentropy
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 
 # Training and prediction options
-use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = True	           	# save as binary (True) or softmax (False)
 save_model = False		        	# save model structure and weights? Yes=True, No=False
-prediction_only = True             # if True -> training is skipped
+prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'F:/Paired datasets/test/headers'
+data_path = 'F:/Paired datasets/train/headers'
 
 # Validation data
-val_path = None # Set to None is not using validation data
+val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
 
 # Model
 model_path = 'F:/Paired datasets/models/sws'
@@ -149,7 +149,7 @@ if not prediction_only:
         vparams = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
-          'dataset_weighting': [1],
+          'dataset_weighting': None,
 	       'shuffle': False}
         
         val_generator=DataGenerator(val_dir, **vparams)
