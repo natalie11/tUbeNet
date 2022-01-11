@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = 'C:/Users/Natal/Documents/CABI/Vessel data/'
-image_filename = "LS_C1M3_yanan_4subsample.tif"
-label_filename = "LS_C1M3_yanan_segmentation.tif"
+path = 'C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/corrosioncast'
+image_filename = "20200512134413_127481_crop500.tiff"
+label_filename = None
 
 # Output directory
-output_path = "C:/Users/Natal/Documents/CABI/Vessel data/preproc_data"
-output_name = "CT"
+output_path = "C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/preprocessed"
+output_name = "corosioncast_20200512134413_127481_crop500"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

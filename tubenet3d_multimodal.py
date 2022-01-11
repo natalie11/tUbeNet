@@ -30,26 +30,26 @@ loss = "DICE BCE"	        	   # "DICE BCE" or "weighted categorical crossentropy
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 
 # Training and prediction options
-use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = True	           	# save as binary (True) or softmax (False)
 save_model = False		        	# save model structure and weights? Yes=True, No=False
-prediction_only = False             # if True -> training is skipped
+prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'F:/Paired datasets/train/headers'
+data_path = 'C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/preprocessed//headers'
 
 # Validation data
-val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
+val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired datasets/models/sws'
+model_path = 'C:/Users/Natal/Documents/CABI/Vessel data/models'
 model_filename = 'model_epoch_4610' # If not using an exisiting model, else set to None
 updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_filename = 'F:/Paired datasets/pred_sws'
+output_filename = 'C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/predictions'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
