@@ -489,7 +489,7 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
 
 
 def fine_tuning(model=None, n_classes=2, freeze_layers=0, 
-                learning_rate=1e-5, loss=None, metrics=['accuracy']):
+                learning_rate=1e-5, loss=None, class_weights=None, metrics=['accuracy']):
     """ Fine Tuning
     Replaces classifer layer and freezes shallow layers for fine tuning
     Inputs:
@@ -866,7 +866,7 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 
 
 def load_saved_model(model_path=None, filename=None,
-                     learning_rate=1e-3, loss=None, metrics=['accuracy'],
+                     learning_rate=1e-3, loss=None, class_weights=None, metrics=['accuracy'],
                      freeze_layers=None, n_classes=2, fine_tuning=False):
 	"""# Load Saved Model
     Inputs:
@@ -903,7 +903,7 @@ def load_saved_model(model_path=None, filename=None,
 	    # load weights into new model
 	    model.load_weights(mfile)
 	    model = fine_tuning(model=model, freeze_layers=freeze_layers, 
-                                 learning_rate=learning_rate, loss=loss, metrics=metrics)
+                                 learning_rate=learning_rate, loss=loss, class_weights=class_weights, metrics=metrics)
 	else:
 	    if n_gpus>1:
 		    strategy = tf.distribute.MirroredStrategy()
