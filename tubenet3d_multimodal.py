@@ -14,14 +14,15 @@ import datetime
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# number of epoch for training CNN
-steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 30			         	# number of epoch for training CNN
+steps_per_epoch = 5		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
 dataset_weighting = None
@@ -31,25 +32,25 @@ class_weights = None	        	# if using weighted loss: relative weighting of ba
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tuning = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
-binary_output = True	           	# save as binary (True) or softmax (False)
+fine_tune = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+binary_output = False	           	# save as binary (True) or softmax (False)
 save_model = False		        	# save model structure and weights? Yes=True, No=False
 prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/preprocessed//headers'
+data_path = 'F:/Paired datasets/deconv_fadus/subvol/headers'
 
 # Validation data
 val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'C:/Users/Natal/Documents/CABI/Vessel data/models'
-model_filename = 'model_epoch_4610' # If not using an exisiting model, else set to None
+model_path = 'F:/Paired datasets/models/sws/real_data'
+model_filename = 'model_epoch_5340_finetuned' # If not using an exisiting model, else set to None
 updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_filename = 'C:/Users/Natal/Documents/CABI/Vessel data/SWS_to_try/predictions'
+output_filename = 'F:/Paired datasets/deconv_fadus/subvol/pred'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -98,7 +99,7 @@ if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model = tube.load_saved_model(model_path=model_path, filename=model_filename,
                          learning_rate=1e-5, loss=loss, class_weights=class_weights, metrics=['accuracy', tube.recall, tube.precision],
-                         freeze_layers=10, fine_tuning=fine_tuning, n_classes=n_classes)
+                         freeze_layers=10, fine_tune=fine_tune, n_classes=n_classes)
 else:
     model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
                                     learning_rate=1e-5, loss=loss, class_weights=class_weights,
@@ -199,4 +200,4 @@ else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model=model, data_dir=data_dir,
                         volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1), 
-                        binary_output=True, save_output= True, prediction_filename = 'prediction', path=output_filename)
+                        binary_output=binary_output, save_output= True, prediction_filename = 'prediction', path=output_filename)

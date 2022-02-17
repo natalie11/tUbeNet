@@ -511,23 +511,22 @@ def fine_tuning(model=None, n_classes=2, freeze_layers=0,
     classifier = Conv3D(n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
     # rename new classifier layer to avoid error caused by layer having the same name as first layer of base model
 
+    model = Model(inputs=[model.input], outputs=[classifier])
     # freeze weights for selected layers
     for layer in model.layers[:freeze_layers]: layer.trainable = False
-    
-    if n_gpus >1:       
-        for layer in model.layers[:freeze_layers]: layer.trainable = False
-        strategy = tf.distribute.MirroredStrategy()
-        print("Creating model on {} GPUs".format(n_gpus))
-        with strategy.scope():	
-    	    model = Model(inputs=[model.input], outputs=[classifier])
-            # freeze weights for selected layers
-    	    for layer in model.layers[:freeze_layers]: layer.trainable = False
-    	    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+    if loss == 'weighted categorical crossentropy':
+            custom_loss=partial(weighted_crossentropy, weights=class_weights)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = weighted_crossentropy.__module__
+    elif loss == 'DICE BCE':
+            custom_loss=partial(DiceBCELoss,smooth=1e-6)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = DiceBCELoss.__module__
     else:
-        model = Model(inputs=[model.input], outputs=[classifier])
-        # freeze weights for selected layers
-        for layer in model.layers[:freeze_layers]: layer.trainable = False
-        model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+            print('Loss not recognised, using categorical crossentropy')
+            custom_loss='categorical_crossentropy'
+
+    model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
         
     return model
 
@@ -867,12 +866,12 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 
 def load_saved_model(model_path=None, filename=None,
                      learning_rate=1e-3, loss=None, class_weights=None, metrics=['accuracy'],
-                     freeze_layers=None, n_classes=2, fine_tuning=False):
+                     freeze_layers=None, n_classes=2, fine_tune=False):
 	"""# Load Saved Model
     Inputs:
         model_path = path of model to be opened (string)
         filename = model filename (string)
-        fine_tuning = if 'True' model with be prepared for fine tuning with default settings (bool, default 'False')
+        fine_tune = if 'True' model with be prepared for fine tuning with default settings (bool, default 'False')
         freese_layers = number of shallow layers that won't be trained if fine tuning (int, default none)
         n_classes = number of unique classes (int, default 2)
         loss = loss function to be used in training
@@ -898,12 +897,23 @@ def load_saved_model(model_path=None, filename=None,
     	# load model from json
 		model_json = json_file.read()
         
-	if fine_tuning:
-	    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
-	    # load weights into new model
-	    model.load_weights(mfile)
-	    model = fine_tuning(model=model, freeze_layers=freeze_layers, 
+	if fine_tune:
+	    if n_gpus>1:
+		    strategy = tf.distribute.MirroredStrategy(cross_device_ops = tf.distribute.HierarchicalCopyAllReduce())
+		    print("Creating model on {} GPUs".format(n_gpus))
+		    with strategy.scope():
+		    	model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
+		    	# load weights into new model
+		    	model.load_weights(mfile)
+		    	model = fine_tuning(model=model, freeze_layers=freeze_layers, 
                                  learning_rate=learning_rate, loss=loss, class_weights=class_weights, metrics=metrics)
+	    else:
+		    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
+		    # load weights into new model
+		    model.load_weights(mfile)
+		    model = fine_tuning(model=model, freeze_layers=freeze_layers, 
+                                 learning_rate=learning_rate, loss=loss, class_weights=class_weights, metrics=metrics)
+
 	else:
 	    if n_gpus>1:
 		    strategy = tf.distribute.MirroredStrategy()
