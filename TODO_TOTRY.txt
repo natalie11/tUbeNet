@@ -1,0 +1,88 @@
+Visualise activations:
+def _activation_summary(x_name, x):
+    """Helper to create summaries for activations.
+    	Creates a summary that provides a histogram of activations.
+    	Creates a summary that measure the sparsity of activations.
+    Args:
+        x_name: Tensor name
+        x: Tensor
+    Returns:
+        nothing
+    """
+
+    tf.summary.histogram(x_name + '/activations', x)
+    tf.summary.scalar(x_name + '/sparsity', tf.nn.zero_fraction(x))
+
+
+Visualise weights:
+# https://gist.github.com/akiross/754c7b87a2af8603da78b46cdaaa5598
+def get_deconv_filter(f_shape):
+    # f_shape = [ksize, ksize, out_features, in_features]
+    width = f_shape[0]
+    height = f_shape[0]
+    f = np.ceil(width/2.0)
+    c = (2 * f - 1 - f % 2) / (2.0 * f)
+    bilinear = np.zeros([f_shape[0], f_shape[1]])
+    for x in range(width):
+        for y in range(height):
+            value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
+            bilinear[x, y] = value
+    weights = np.zeros(f_shape)
+    for i in range(f_shape[2]):
+        weights[:, :, i, i] = bilinear
+        
+    return weights
+
+---------------------------------------------------------------------------
+Keras Self Attention:
+# Variable-length int sequences
+query_input = tf.keras.Input(shape=(None,), dtype='int32')
+value_input = tf.keras.Input(shape=(None,), dtype='int32')
+
+# Embedding lookup.
+token_embedding = tf.keras.layers.Embedding(input_dim=1000, output_dim=64)
+# Query embeddings of shape [batch_size, Tq, dimension].
+query_embeddings = token_embedding(query_input)
+# Value embeddings of shape [batch_size, Tv, dimension].
+value_embeddings = token_embedding(value_input)
+
+# CNN layer.
+cnn_layer = tf.keras.layers.Conv1D(
+    filters=100,
+    kernel_size=4,
+    # Use 'same' padding so outputs have the same shape as inputs.
+    padding='same')
+# Query encoding of shape [batch_size, Tq, filters].
+query_seq_encoding = cnn_layer(query_embeddings)
+# Value encoding of shape [batch_size, Tv, filters].
+value_seq_encoding = cnn_layer(value_embeddings)
+
+
+attn=tf.keras.layers.Attention()
+query_value_attn_seq=attn([query_seq_encoding, value_seg_encode])
+
+
+-----------------------------------------------------------------------------
+U-net attention (https://towardsdatascience.com/using-attention-for-medical-image-segmentation-dd78825eaac6
+
+class AttnBlock(tf.keras.layers.Layer):
+	def __init__(self, channels=32):
+		super(AttnBlock,self).__init__()
+		self.Wq = Conv3D(channels, (3, 3, 3), padding='same', kernel_initializer='he_uniform')
+		self.Wk = Conv3D(channels, (3, 3, 3), padding='same', kernel_initializer='he_uniform')
+		self.map = Conv3D(channels, (1, 1, 1), activation= 'sigmoid', padding='same', kernel_initializer='he_uniform')
+	def call (self, query, key):
+		w_query=self.Wq(query)
+		w_key=self.Wk(key)
+		dot_prod=tf.matmul(w_query, w_key, transpose_b=True)
+		attn_map=self.map(dot_prod)
+		return attn_map*query
+--------------------------------------------------------------------------
+
+Channel attention:
+
+Focus loss:
+
+Inverse weighting:
+
+Frangi filtering shape awareness regularisation:

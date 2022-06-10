@@ -11,7 +11,8 @@ import pickle
 from functools import partial
 import numpy as np
 import datetime
-import tUbeNet_functions as tube
+from model import tUbeNet
+import tUbeNet_functions_attn as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 #os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
@@ -47,7 +48,7 @@ val_path = None # Set to None is not using validation data
 # Model
 model_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/models/'
 model_filename = None # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'trad_unet_comparison' # model will be saved under this name
+updated_model_filename = 'attn_unet_attempt1' # model will be saved under this name
 
 # Image output
 output_filename = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/pred'
@@ -94,16 +95,17 @@ data_generator=DataGenerator(data_dir, **params)
 # callbacks              
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
+tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims)
 
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model = tube.load_saved_model(model_path=model_path, filename=model_filename,
-                         learning_rate=1e-5, loss=loss, class_weights=class_weights, metrics=['accuracy', tube.recall, tube.precision],
-                         freeze_layers=10, fine_tune=fine_tune, n_classes=n_classes)
+    model = tubenet.load_weights(filename=model_filename, loss=loss, class_weights=class_weights, learning_rate=1e-5, 
+                                 metrics=['accuracy', tube.recall, tube.precision],
+                                 freeze_layers=10, fine_tune=fine_tune)
+
 else:
-    model = tube.tUbeNet(n_classes=n_classes, input_height=volume_dims[1], input_width=volume_dims[2], input_depth=volume_dims[0], 
-                                    learning_rate=1e-5, loss=loss, class_weights=class_weights,
-                                    metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+    model = tubenet.create(learning_rate=1e-5, loss=loss, class_weights=class_weights, 
+                           metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
 if not prediction_only:
@@ -166,7 +168,8 @@ if not prediction_only:
     
     # SAVE MODEL
     if save_model:
-    	tube.save_model(model, model_path, updated_model_filename)
+        #model.save(os.path.join(model_path,updated_model_filename))
+        model.save_weights(os.path.join(model_path,updated_model_filename), save_format='h5')
 
     """ Plot ROC """
     # Create directory of validation data
