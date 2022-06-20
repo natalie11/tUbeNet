@@ -197,3 +197,35 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
         with self.file_writer.as_default():
                 tf.summary.image("Example subvolume",image,step=epoch)
+    
+#from sklearn.metrics import roc_auc_score
+#from keras.callbacks import Callback
+#
+#class roc_callback(Callback):
+#    def __init__(self,data_dir,val_data_dir, test_generator):
+#	    'Initialization'    
+#	    self.data_dir = data_dir
+#	    self.val_data_dir = val_data_dir
+#
+#    def on_train_begin(self, logs={}):
+#        return
+#
+#    def on_train_end(self, logs={}):
+#        return
+#
+#    def on_epoch_begin(self, epoch, logs={}):
+#        return
+#
+#    def on_epoch_end(self, epoch, logs={}):
+#        y_pred = self.model.predict_generator(self.test_generator)
+#        roc = roc_auc_score(self.y, y_pred)
+#        y_pred_val = self.model.predict(self.x_val)
+#        roc_val = roc_auc_score(self.y_val, y_pred_val)
+#        print('\rroc-auc: %s - roc-auc_val: %s' % (str(round(roc,4)),str(round(roc_val,4))),end=100*' '+'\n')
+#        return
+#
+#    def on_batch_begin(self, batch, logs={}):
+#        return
+#
+#    def on_batch_end(self, batch, logs={}):
+#        return

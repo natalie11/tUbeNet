@@ -368,18 +368,19 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
     """tUbeNet model
     Inputs:
         n_classes = number of classes (int, default 2)
-        input_shape = dimensions of input image (int, default 64,64,64)
+        input_height = hight of input image (int, default 64)
+        input_width = width of input image (int, default 64)
+        input_depth = depth of input image (int, default 64)
         learning_rate = learning rate (float, default 1e-3)
-        loss = name of loss function, string
-        metrics = training metrics, list of functions or strings 
-        dropout = rate of neuron loss at dropout layers (float, default 0.25)
-        alpha = leaky relu gradient (float, default 0.2) 
-        class_weights= weightings if using weighted crossentropy (default (1,7))
-       
+        loss = loss function, function or string
+        metrics = training metrics, list of functions or strings
     Outputs:
         model = compiled model
-        model_gpu = compiled multi-GPU model 
-        """
+        model_gpu = compiled multi-GPU model
+    
+    Adapted from:
+    https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
+    """
     
     def create_model_structure():
         inputs = Input((input_depth, input_height, input_width, 1))
@@ -711,7 +712,7 @@ def predict_segmentation(model=None, data_dir=None,
                                        coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128) #only take first output						
     			# predict segmentation using model
             vol_pred_ohe = model.predict(vol,verbose=1) 
-            #vol_pred_ohe=vol_pred_ohe[0] #Required if output is a tuple of the prediction array and 
+            vol_pred_ohe=vol_pred_ohe[0]
             del vol
       
             # average overlapped region in z axis

@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol'
-image_filename = 'BN_730nm_GL_35iterationsRL_deconvolved.tif'
-label_filename = 'BN_730nm_GL_35iterationsRL_deconvolved_labels_cropped600.tif'
+path = 'F:/sws_corrosioncast'
+image_filename = "20200512134413_127481_crop500.tiff"
+label_filename = None
 
 # Output directory
-output_path = "C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol"
-output_name = "fadus_deconv_subvol"
+output_path = "F:/sws_corrosioncast"
+output_name = "corrosioncast_data"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

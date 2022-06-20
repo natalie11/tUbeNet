@@ -14,15 +14,15 @@ import datetime
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
-#os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 50			         	# number of epoch for training CNN
-steps_per_epoch = 10		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 30			         	# number of epoch for training CNN
+steps_per_epoch = 5		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
 dataset_weighting = None
@@ -31,26 +31,26 @@ loss = "DICE BCE"	        	   # "DICE BCE" or "weighted categorical crossentropy
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 
 # Training and prediction options
-use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
+use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
 fine_tune = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
-binary_output = True	           	# save as binary (True) or softmax (False)
-save_model = True		        	# save model structure and weights? Yes=True, No=False
-prediction_only = False             # if True -> training is skipped
+binary_output = False	           	# save as binary (True) or softmax (False)
+save_model = False		        	# save model structure and weights? Yes=True, No=False
+prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/headers'
+data_path = 'F:/Paired datasets/deconv_fadus/subvol/headers'
 
 # Validation data
 val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/models/'
-model_filename = None # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'trad_unet_comparison' # model will be saved under this name
+model_path = 'F:/Paired datasets/models/sws/real_data'
+model_filename = 'model_epoch_5340_finetuned' # If not using an exisiting model, else set to None
+updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_filename = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/pred'
+output_filename = 'F:/Paired datasets/deconv_fadus/subvol/pred'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
