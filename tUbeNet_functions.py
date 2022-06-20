@@ -423,7 +423,7 @@ def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
         conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
         activ6 = LeakyReLU(alpha=alpha)(conv6)
     
-        up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(conv6), activ5], axis=4)    
+        up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ6), activ5], axis=4)    
         conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
         activ7 = LeakyReLU(alpha=alpha)(conv7)
         conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ7)
