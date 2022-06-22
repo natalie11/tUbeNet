@@ -28,7 +28,7 @@ batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
 dataset_weighting = None
 
-loss = "DICE BCE"	        	   # "DICE BCE" or "weighted categorical crossentropy"
+loss = "focal"	        	   # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 
 # Training and prediction options
@@ -48,7 +48,7 @@ val_path = None # Set to None is not using validation data
 # Model
 model_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/models/'
 model_filename = None # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'attn_unet_attempt1' # model will be saved under this name
+updated_model_filename = 'attn_unet_focal' # model will be saved under this name
 
 # Image output
 output_filename = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/pred'

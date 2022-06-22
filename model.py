@@ -17,6 +17,7 @@ from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Co
 from tensorflow.keras.utils import multi_gpu_model #np_utils
 # opimiser
 from tensorflow.keras.optimizers import Adam
+import tensorflow_addons as tfa
 
 # import tensor flow
 import tensorflow as tf
@@ -153,6 +154,9 @@ class tUbeNet(tf.keras.Model):
             custom_loss=partial(DiceBCELoss,smooth=1e-6)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = DiceBCELoss.__module__
+        elif loss == 'focal':
+            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.25, gamma=2)
+            #ref https://arxiv.org/pdf/1708.02002.pdf
         else:
             print('Loss not recognised, using categorical crossentropy')
             custom_loss='categorical_crossentropy'

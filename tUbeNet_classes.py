@@ -7,7 +7,7 @@ Developed by Natalie Holroyd (UCL)
 
 #Import libraries
 import numpy as np
-import tUbeNet_functions as tube
+import tUbeNet_functions_attn as tube
 import random
 import pickle
 import os

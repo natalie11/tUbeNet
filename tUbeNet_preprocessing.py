@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import os
 import numpy as np
-import tUbeNet_functions as tube
+import tUbeNet_functions_attn as tube
 from tUbeNet_classes import DataHeader
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
