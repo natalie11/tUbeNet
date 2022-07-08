@@ -155,7 +155,7 @@ class tUbeNet(tf.keras.Model):
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = DiceBCELoss.__module__
         elif loss == 'focal':
-            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.25, gamma=2)
+            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.5, gamma=5)
             #ref https://arxiv.org/pdf/1708.02002.pdf
         else:
             print('Loss not recognised, using categorical crossentropy')

@@ -26,7 +26,7 @@ n_epochs = 50			         	# number of epoch for training CNN
 steps_per_epoch = 10		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
-dataset_weighting = None
+dataset_weighting = [30,60,10]
 
 loss = "focal"	        	   # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
@@ -40,18 +40,18 @@ prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/headers'
+data_path = 'F:/Paired datasets/train/headers'
 
 # Validation data
-val_path = None # Set to None is not using validation data
+val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
 
 # Model
-model_path = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/models/'
+model_path = 'F:/Paired datasets/models/attn'
 model_filename = None # filepath for model weights is using an exisiting model, else set to None
 updated_model_filename = 'attn_unet_focal' # model will be saved under this name
 
 # Image output
-output_filename = 'C:/Users/Natal/Documents/CABI/ML/Vessel data/fadus_subvol/pred'
+output_filename = 'F:/Paired datasets/attn_pred'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
