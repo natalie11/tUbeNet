@@ -27,9 +27,9 @@ steps_per_epoch = 10		        # total number of steps (batches of samples) to yi
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
 dataset_weighting = [30,60,10]
-
-loss = "focal"	        	   # "DICE BCE", "focal" or "weighted categorical crossentropy"
+loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
+augment = True
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
@@ -86,6 +86,7 @@ params = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
           'dataset_weighting': dataset_weighting,
+          'augment':augment,
 	       'shuffle': False}
 
 data_generator=DataGenerator(data_dir, **params)
@@ -153,6 +154,7 @@ if not prediction_only:
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
           'dataset_weighting': None,
+          'augment' = False,
 	       'shuffle': False}
         
         val_generator=DataGenerator(val_dir, **vparams)

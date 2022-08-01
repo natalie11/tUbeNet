@@ -16,6 +16,7 @@ join = os.path.join
 #import json
 import io
 from matplotlib import pyplot as plt
+from scipy.ndimage import rotate, zoom
 import tensorflow as tf
 from tensorflow.keras.utils import Sequence, to_categorical #np_utils
 #---------------------------------------------------------------------------------------------------------------------------------------------
@@ -38,7 +39,6 @@ class DataDir:
 	    self.label_filenames = label_filenames
 	    self.list_IDs = list_IDs
 	    self.data_type = data_type
-
 
 class DataGenerator(Sequence):
 	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None, augment=False):
@@ -105,16 +105,40 @@ class DataGenerator(Sequence):
 	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
                      
-	    # Reshape to add depth of 1
+        # Reshape to add depth of 1
 	    X = X.reshape(*X.shape, 1)
-
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
     def _augmentation(self, X, y):
-        #Data augmentation for training
-        
+        # Apply data augmentations to each image/label pair in batch
+        for i in range(self.batch_size):
+            #Rotate
+            angle = np.random.uniform(-30,30, size=1)
+            X[i] = rotate(X[i], float(angle), reshape=False, order=3, mode='reflect')
+            y[i] = rotate(y[i], float(angle), reshape=False, order=0, mode='reflect')
+            #Zoom
+            scale = np.random.uniform(0.75,1.25, size=1)
+            X[i] = zoom(X[i], float(scale), order=3, mode='reflect')
+            y[i] = zoom(y[i], float(scale), order=0, mode='reflect')
+            #Flip
+            #NB: do not flip in z axis due to asymmetric PSF in HREM data
+            axes = np.random.randint(4, size=1)
+            if axes=0:
+                #flip in x axis
+                X[i] = np.flip(X[i],1) 
+                y[i] = np.flip(y[i],1)
+            elif axes=1:
+                #flip in y axis
+                X[i] = np.flip(X[i],2) 
+                y[i] = np.flip(y[i],2)
+            elif axes=2:
+                #flip in x and y axis
+                X[i] = np.flip(X[i],(1,2)) 
+                y[i] = np.flip(y[i],(1,2)) 
+            #if axes=3, no flip
         return X, y
+    
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 

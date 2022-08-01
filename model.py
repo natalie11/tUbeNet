@@ -12,7 +12,7 @@ from functools import partial
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model, model_from_json
 # CNN layers
-from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
+from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout
 # utilities
 from tensorflow.keras.utils import multi_gpu_model #np_utils
 # opimiser
@@ -117,7 +117,7 @@ class DecodeBlock(tf.keras.layers.Layer):
         norm2 = self.norm(activ2)
 		activ2 = self.lrelu(conv)
 		return activ2
-    
+
 class tUbeNet(tf.keras.Model):   
     def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2):
         super(tUbeNet,self).__init__()
@@ -128,7 +128,7 @@ class tUbeNet(tf.keras.Model):
         
     def build(self):        
         inputs = Input((*self.input_dims, 1))
-        
+             
         block1 = EncodeBlock(channels=32, alpha=self.alpha, dropout=self.dropout)(inputs)
         block2 = EncodeBlock(channels=64, alpha=self.alpha, dropout=self.dropout)(block1)
         block3 = EncodeBlock(channels=128, alpha=self.alpha, dropout=self.dropout)(block2)
