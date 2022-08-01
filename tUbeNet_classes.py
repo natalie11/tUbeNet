@@ -50,7 +50,7 @@ class DataGenerator(Sequence):
 	    self.on_epoch_end()
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
-        self.augment = augment
+	    self.augment = augment
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
@@ -67,11 +67,11 @@ class DataGenerator(Sequence):
 		if len(self.data_dir.list_IDs)>2:
 		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
-        # Generate data
+		# Generate data
 		X, y = self.__data_generation(list_IDs_temp)
         
-        if self.augment:
-            X, y = self._augmenation(X,y)
+		if self.augment:
+		    X, y = self._augmenation(X,y)
 
 		return X, y
 	    
@@ -105,14 +105,14 @@ class DataGenerator(Sequence):
 	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
                      
-        # Reshape to add depth of 1
+	    # Reshape to add depth of 1
 	    X = X.reshape(*X.shape, 1)
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
-    def _augmentation(self, X, y):
-        # Apply data augmentations to each image/label pair in batch
-        for i in range(self.batch_size):
+	def _augmentation(self, X, y):
+	    # Apply data augmentations to each image/label pair in batch
+	    for i in range(self.batch_size):
             #Rotate
             angle = np.random.uniform(-30,30, size=1)
             X[i] = rotate(X[i], float(angle), reshape=False, order=3, mode='reflect')

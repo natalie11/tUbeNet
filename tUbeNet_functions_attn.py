@@ -689,17 +689,17 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
         # Plot ROC 
-        fig = plt.figure()
-        plt.plot(fpr, tpr, color='darkorange',
-                 lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
-        plt.legend(loc="lower right")
-        plt.show()
-        fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
+        #fig = plt.figure()
+        #plt.plot(fpr, tpr, color='darkorange',
+        #         lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
+        #plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        #plt.xlim([0.0, 1.0])
+        #plt.ylim([0.0, 1.05])
+        #plt.xlabel('False Positive Rate')
+        #plt.ylabel('True Positive Rate')
+        #plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
+        #plt.legend(loc="lower right")
+        #plt.show()
+        #fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
 
     return optimal_thresholds, recall, precision

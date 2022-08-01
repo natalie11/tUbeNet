@@ -86,16 +86,16 @@ class EncodeBlock(tf.keras.layers.Layer):
 		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.conv2 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
-        self.lrelu = LeakyReLU(alpha=alpha)
+		self.lrelu = LeakyReLU(alpha=alpha)
 		self.pool = MaxPooling3D(pool_size=(2, 2, 2))
 		self.dropout = Dropout(dropout)
 	def call (self, x):
 		conv1 = self.conv1(x)
 		activ1 = self.lrelu(conv1)
-        norm1 = self.norm(activ1)
+		norm1 = self.norm(activ1)
 		conv2 = self.conv2(activ1)
 		activ2 = self.lrelu(conv2)
-        norm2 = self.norm(activ2)
+		norm2 = self.norm(activ2)
 		pool = self.pool(activ2)
 		drop = self.dropout(pool)
 		return drop
@@ -106,15 +106,15 @@ class DecodeBlock(tf.keras.layers.Layer):
 		self.transpose = Conv3DTranspose(channels, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')
 		self.conv = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
-        self.lrelu = LeakyReLU(alpha=alpha)
+		self.lrelu = LeakyReLU(alpha=alpha)
 		self.channels = channels
 	def call (self, skip, x):
 		attn = AttnBlock(channels=self.channels)(skip, x)
 		transpose = self.transpose(attn)
 		activ1 = self.lrelu(transpose)
-        norm1 = self.norm(activ1)
+		norm1 = self.norm(activ1)
 		conv = self.conv(activ1)
-        norm2 = self.norm(activ2)
+		norm2 = self.norm(activ2)
 		activ2 = self.lrelu(conv)
 		return activ2
 
@@ -161,7 +161,7 @@ class tUbeNet(tf.keras.Model):
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = DiceBCELoss.__module__
         elif loss == 'focal':
-            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.5, gamma=5)
+            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.2, gamma=5)
             #ref https://arxiv.org/pdf/1708.02002.pdf
         else:
             print('Loss not recognised, using categorical crossentropy')

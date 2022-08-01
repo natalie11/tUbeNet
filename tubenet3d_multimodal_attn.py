@@ -22,8 +22,8 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 50			         	# number of epoch for training CNN
-steps_per_epoch = 10		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 200			         	# number of epoch for training CNN
+steps_per_epoch = 30		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # batch size for training CNN
 n_classes=2
 dataset_weighting = [30,60,10]
@@ -122,7 +122,7 @@ if not prediction_only:
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
-    imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir)
+    #imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir) #currently glitched...
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
         
 	# Create directory of validation data
@@ -154,7 +154,7 @@ if not prediction_only:
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
           'dataset_weighting': None,
-          'augment' = False,
+          'augment': False,
 	       'shuffle': False}
         
         val_generator=DataGenerator(val_dir, **vparams)
@@ -166,7 +166,7 @@ if not prediction_only:
     else:
         # TRAIN without validation
     	history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
     
     # SAVE MODEL
     if save_model:
