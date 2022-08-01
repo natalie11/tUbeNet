@@ -71,7 +71,10 @@ class DataGenerator(Sequence):
 		X, y = self.__data_generation(list_IDs_temp)
         
 		if self.augment:
-		    X, y = self._augmenation(X,y)
+		    X, y = self._augmentation(X,y)
+
+		# Reshape to add depth of 1
+		X = X.reshape(*X.shape, 1)
 
 		return X, y
 	    
@@ -105,9 +108,6 @@ class DataGenerator(Sequence):
 	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
                      
-	    # Reshape to add depth of 1
-	    X = X.reshape(*X.shape, 1)
-		
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
 	def _augmentation(self, X, y):
@@ -119,24 +119,37 @@ class DataGenerator(Sequence):
 		    y[i] = rotate(y[i], float(angle), reshape=False, order=0, mode='reflect')
 		    #Zoom
 		    scale = np.random.uniform(0.75,1.25, size=1)
-		    X[i] = zoom(X[i], float(scale), order=3, mode='reflect')
-		    y[i] = zoom(y[i], float(scale), order=0, mode='reflect')
+		    (d,h,w) = X[i].shape
+		    (dz,hz,wz) = np.round((scale*d, scale*h, scale*w))
+		    (dz,hz,wz) = (int(dz),int(hz),int(wz))
+		    if scale<1.0:
+	    	        z = int((d-dz)//2)
+	    	        x = int((h-hz)//2)
+	    	        y = int((w-wz)//2)
+	    	        X[i][z:z+dz,x:x+hz,y:y+wz] = zoom(X[i], float(scale), order=3, mode='reflect')
+	    	        y[i][z:z+dz,x:x+hz,y:y+wz] = zoom(y[i], float(scale), order=0, mode='reflect')
+		    elif scale>1.0:
+	    	        z = int((dz-d)//2)
+	    	        x = int((hz-h)//2)
+	    	        y = int((wz-w)//2)
+	    	        X[i] = zoom(X[i][z:z+dz,x:x+hz,y:y+wz], float(scale), order=3, mode='reflect')
+	    	        y[i] = zoom(y[i][z:z+dz,x:x+hz,y:y+wz], float(scale), order=0, mode='reflect')
 		    #Flip
 		    #NB: do not flip in z axis due to asymmetric PSF in HREM data
 		    axes = np.random.randint(4, size=1)
-		    if axes=0:
-	    	     #flip in x axis
-	    	     X[i] = np.flip(X[i],1) 
-	    	     y[i] = np.flip(y[i],1)
-		    elif axes=1:
-	    	     #flip in y axis
-	    	     X[i] = np.flip(X[i],2) 
-	    	     y[i] = np.flip(y[i],2)
-		    elif axes=2:
-	    	     #flip in x and y axis
-	    	     X[i] = np.flip(X[i],(1,2)) 
-	    	     y[i] = np.flip(y[i],(1,2)) 
-		    #if axes=3, no flip
+		    if axes==0:
+	    	        #flip in x axis
+	    	        X[i] = np.flip(X[i],1) 
+	    	        y[i] = np.flip(y[i],1)
+		    elif axes==1:
+	    	        #flip in y axis
+	    	        X[i] = np.flip(X[i],2) 
+	    	        y[i] = np.flip(y[i],2)
+		    elif axes==2:
+	    	        #flip in x and y axis
+	    	        X[i] = np.flip(X[i],(1,2)) 
+	    	        y[i] = np.flip(y[i],(1,2)) 
+		    #if axes==3, no flip
 	    return X, y
     
     

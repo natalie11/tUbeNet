@@ -114,9 +114,9 @@ class DecodeBlock(tf.keras.layers.Layer):
 		activ1 = self.lrelu(transpose)
 		norm1 = self.norm(activ1)
 		conv = self.conv(activ1)
-		norm2 = self.norm(activ2)
 		activ2 = self.lrelu(conv)
-		return activ2
+		norm2 = self.norm(activ2)
+		return norm2
 
 class tUbeNet(tf.keras.Model):   
     def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2):
