@@ -41,7 +41,7 @@ class DataDir:
 
 
 class DataGenerator(Sequence):
-	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None):
+	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None, augment=False):
 	    'Initialization'
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
@@ -50,6 +50,7 @@ class DataGenerator(Sequence):
 	    self.on_epoch_end()
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
+        self.augment = augment
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
@@ -68,6 +69,9 @@ class DataGenerator(Sequence):
 		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
         # Generate data
 		X, y = self.__data_generation(list_IDs_temp)
+        
+        if self.augment:
+            X, y = self._augmenation(X,y)
 
 		return X, y
 	    
@@ -106,6 +110,11 @@ class DataGenerator(Sequence):
 
 		
 	    return X, to_categorical(y, num_classes=self.n_classes)
+    
+    def _augmentation(self, X, y):
+        #Data augmentation for training
+        
+        return X, y
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
