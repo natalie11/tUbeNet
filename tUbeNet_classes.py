@@ -118,22 +118,16 @@ class DataGenerator(Sequence):
 		    X[i] = rotate(X[i], float(angle), reshape=False, order=3, mode='reflect')
 		    y[i] = rotate(y[i], float(angle), reshape=False, order=0, mode='reflect')
 		    #Zoom
-		    scale = np.random.uniform(0.75,1.25, size=1)
-		    (d,h,w) = X[i].shape
-		    (dz,hz,wz) = np.round((scale*d, scale*h, scale*w))
-		    (dz,hz,wz) = (int(dz),int(hz),int(wz))
-		    if scale<1.0:
-	    	        z = int((d-dz)//2)
-	    	        x = int((h-hz)//2)
-	    	        y = int((w-wz)//2)
-	    	        X[i][z:z+dz,x:x+hz,y:y+wz] = zoom(X[i], float(scale), order=3, mode='reflect')
-	    	        y[i][z:z+dz,x:x+hz,y:y+wz] = zoom(y[i], float(scale), order=0, mode='reflect')
-		    elif scale>1.0:
-	    	        z = int((dz-d)//2)
-	    	        x = int((hz-h)//2)
-	    	        y = int((wz-w)//2)
-	    	        X[i] = zoom(X[i][z:z+dz,x:x+hz,y:y+wz], float(scale), order=3, mode='reflect')
-	    	        y[i] = zoom(y[i][z:z+dz,x:x+hz,y:y+wz], float(scale), order=0, mode='reflect')
+		    scale = np.random.uniform(1.0,1.25, size=1)
+		    Xzoom = zoom(X[i], float(scale), order=3, mode='reflect')
+		    yzoom = zoom(y[i], float(scale), order=0, mode='reflect')
+            (d,h,w)=X[i].shape
+            (dz,hz,wz)=Xzoom.shape
+            dz=int((dz-d)//2)
+            hz=int((hz-h)//2)
+            wz=int((wz-w)//2)
+            X[i]=Xzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
+            y[i]=yzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
 		    #Flip
 		    #NB: do not flip in z axis due to asymmetric PSF in HREM data
 		    axes = np.random.randint(4, size=1)
