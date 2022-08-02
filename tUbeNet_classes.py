@@ -121,13 +121,13 @@ class DataGenerator(Sequence):
 		    scale = np.random.uniform(1.0,1.25, size=1)
 		    Xzoom = zoom(X[i], float(scale), order=3, mode='reflect')
 		    yzoom = zoom(y[i], float(scale), order=0, mode='reflect')
-            (d,h,w)=X[i].shape
-            (dz,hz,wz)=Xzoom.shape
-            dz=int((dz-d)//2)
-            hz=int((hz-h)//2)
-            wz=int((wz-w)//2)
-            X[i]=Xzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
-            y[i]=yzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
+		    (d,h,w)=X[i].shape
+		    (dz,hz,wz)=Xzoom.shape
+		    dz=int((dz-d)//2)
+		    hz=int((hz-h)//2)
+		    wz=int((wz-w)//2)
+		    X[i]=Xzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
+		    y[i]=yzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
 		    #Flip
 		    #NB: do not flip in z axis due to asymmetric PSF in HREM data
 		    axes = np.random.randint(4, size=1)

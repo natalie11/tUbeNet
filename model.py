@@ -93,10 +93,10 @@ class EncodeBlock(tf.keras.layers.Layer):
 		conv1 = self.conv1(x)
 		activ1 = self.lrelu(conv1)
 		norm1 = self.norm(activ1)
-		conv2 = self.conv2(activ1)
+		conv2 = self.conv2(norm1)
 		activ2 = self.lrelu(conv2)
 		norm2 = self.norm(activ2)
-		pool = self.pool(activ2)
+		pool = self.pool(norm2)
 		drop = self.dropout(pool)
 		return drop
 
@@ -113,7 +113,7 @@ class DecodeBlock(tf.keras.layers.Layer):
 		transpose = self.transpose(attn)
 		activ1 = self.lrelu(transpose)
 		norm1 = self.norm(activ1)
-		conv = self.conv(activ1)
+		conv = self.conv(norm1)
 		activ2 = self.lrelu(conv)
 		norm2 = self.norm(activ2)
 		return norm2
@@ -137,8 +137,10 @@ class tUbeNet(tf.keras.Model):
         
         block6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(block5)
         block6 = LeakyReLU(alpha=self.alpha)(block6)
+        block6 = tfa.layers.GroupNormalization(groups=int(1024/4), axis=4)(block6)
         block6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(block6)
         block6 = LeakyReLU(alpha=self.alpha)(block6)
+        block6 = tfa.layers.GroupNormalization(groups=int(512/4), axis=4)(block6)
         
         upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6)
         upblock2 = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1)

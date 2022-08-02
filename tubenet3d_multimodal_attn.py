@@ -29,7 +29,7 @@ n_classes=2
 dataset_weighting = [30,60,10]
 loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
-augment = True
+augment = False
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
