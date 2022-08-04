@@ -277,7 +277,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
+"""Custom loss functions"""
 def weighted_crossentropy(y_true, y_pred, weights):
 	"""Custom loss function - weighted to address class imbalance"""
 	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
@@ -360,7 +360,6 @@ class TimedStopping(Callback):
             if self.verbose:
                 print('Stopping after %s seconds.' % self.seconds)
 
-#---------------------------------------------------------------------------------------------------------------------------------------------------
 
 def piecewise_schedule(i, lr0, decay):
 	""" Learning rate function 
@@ -371,8 +370,10 @@ def piecewise_schedule(i, lr0, decay):
         decay = decay rate (float)
     """
 	lr = lr0 * decay**(i)
+    tf.summary.scalar('learning rate', data=lr, step=i)
 	return lr
 
+#---------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model=None, data_dir=None, 

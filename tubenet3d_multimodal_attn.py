@@ -21,19 +21,20 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 """Set hard-coded parameters and file paths:"""
 
 # Paramters
-volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 200			         	# number of epoch for training CNN
-steps_per_epoch = 30		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
-batch_size = 2		 	       	    # batch size for training CNN
-n_classes=2
-dataset_weighting = [30,60,10]
+volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
+n_epochs = 200			         	# Number of epoch for training CNN
+steps_per_epoch = 30		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+batch_size = 2		 	       	    # Batch size for training CNN
+n_classes=2                         # Number of classes
+dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
 loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
-augment = False
+augment = False     	        	# Augment training data, True/False
+lr0 = 1e-5                          # Initial learning rate
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tune = False                 # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+fine_tune = False                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = True	           	# save as binary (True) or softmax (False)
 save_model = True		        	# save model structure and weights? Yes=True, No=False
 prediction_only = False             # if True -> training is skipped
@@ -100,12 +101,12 @@ tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims)
 
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model = tubenet.load_weights(filename=model_filename, loss=loss, class_weights=class_weights, learning_rate=1e-5, 
+    model = tubenet.load_weights(filename=model_filename, loss=loss, class_weights=class_weights, learning_rate=lr0, 
                                  metrics=['accuracy', tube.recall, tube.precision],
                                  freeze_layers=10, fine_tune=fine_tune)
 
 else:
-    model = tubenet.create(learning_rate=1e-5, loss=loss, class_weights=class_weights, 
+    model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights, 
                            metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
@@ -118,7 +119,7 @@ if not prediction_only:
         os.makedirs(log_dir)
         
     #Callbacks
-    schedule = partial(tube.piecewise_schedule, lr0=1e-5, decay=0.9)
+    schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
