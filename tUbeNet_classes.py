@@ -164,14 +164,29 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
 class ImageDisplayCallback(tf.keras.callbacks.Callback):
 
-    def __init__(self, log_dir=None):
+    def __init__(self, generator, log_dir=None, index=0):
         super().__init__()
+        self.x = None
+        self.y = None
+        self.pred = None
+        self.data_generator = generator #data generator
         self.log_dir = log_dir # directory where logs are saved
         self.file_writer = tf.summary.create_file_writer(log_dir)
+        self.index=index
 
     def on_epoch_end(self, epoch, logs={}):
-        with file_writer.as_default():
-            tf.summary.image("Training data", img, step=epoch)
+        self.x, self.y = self.data_generator.__getitem__(self.index)
+        self.pred = self.model.predict(self.x)
+        
+        z_centre = int(self.x.shape[1]/2)
+        img = self.x[0,z_centre,:,:,0] #take centre slice in z-stack
+        labels = np.argmax(self.y[0,z_centre,:,:,:], axis=-1) #reverse one hot encoding
+        pred = np.argmax(self.pred[0,z_centre,:,:,:], axis=-1) #reverse one hot encoding
+        
+        with self.file_writer.as_default():
+            tf.summary.image("Example output: image, labels and prediction", [img, labels, pred], step=epoch)
+            
+        return
 
 
     # def __init__(self,generator,log_dir=None,index=0):
