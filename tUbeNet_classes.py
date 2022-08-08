@@ -184,81 +184,8 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         pred = np.argmax(self.pred[0,z_centre,:,:,:], axis=-1) #reverse one hot encoding
         
         with self.file_writer.as_default():
-            tf.summary.image("Example output: image, labels and prediction", [img, labels, pred], step=epoch)
+            tf.summary.image("Example output", [img, labels, pred], step=epoch)
             
         return
 
-
-    # def __init__(self,generator,log_dir=None,index=0):
-    #     super().__init__()
-    #     self.log_dir = log_dir
-    #     self.x = None
-    #     self.y = None
-    #     self.pred = None
-    #     self.data_generator = generator
-    #     self.index = index
-    #     self.file_writer = tf.summary.create_file_writer(log_dir)
-
-    # def plot_to_image(fig):
-    #     # save image as png to memory, then convert to tensor (to allow display with tensorboard)
-    #     buf = io.BytesIO()
-    #     plt.savefig(buf,format='png')
-    #     #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
-    #     plt.close(fig)
-    #     buf.seek(0)
-    #     image = tf.image.decode_png(buf.getvalue(),channels=4)
-    #     image = tf.expand_dims(image,0)
-        
-    #     return image
-    
-    # def on_epoch_end(self, epoch, logs={}):
-
-    #     self.x, self.y = self.data_generator.__getitem__(self.index)
-    #     self.pred = self.model.predict(self.x)
-
-    #     sz = self.x.shape
-
-    #     # Take centre slice
-    #     ind = int(sz[1]/2.)
-
-    #     im = self.x[0,ind,:,:,0].squeeze()        
-    #     pred_im = np.argmax(self.pred[0,ind,:,:,:],axis=-1)
-    #     pred_imTrue = np.argmax(self.y[0,ind,:,:,:],axis=-1)
-
-    #     # Plot
-    #     columns = 3
-    #     rows = 1
-
-    #     fsz = 5
-    #     fig = plt.figure(figsize=(fsz*columns,fsz*rows))
-
-    #     i = 1
-    #     ax = fig.add_subplot(rows, columns, i)
-    #     plt.imshow(im)
-    #     ax.title.set_text('Image')
-    #     plt.axis("off")
-
-    #     i = 2
-    #     ax = fig.add_subplot(rows, columns, i)
-    #     plt.imshow(pred_im)
-    #     ax.title.set_text('Predicted labels')
-    #     plt.axis("off")
-
-    #     i = 3
-    #     ax = fig.add_subplot(rows, columns, i)
-    #     plt.imshow(pred_imTrue)
-    #     ax.title.set_text('Labels')
-    #     plt.axis("off")
-
-    #     buf = io.BytesIO()
-    #     plt.savefig(buf,format='png')
-    #     #plt.savefig('F:\epoch'+str(epoch)+'_output.png')
-    #     plt.close(fig)
-    #     buf.seek(0)
-    #     image = tf.image.decode_png(buf.getvalue(),channels=4)
-    #     image = tf.expand_dims(image,0)
-        
-    #     return image
-
-    #     with self.file_writer.as_default():
-    #             tf.summary.image("Example subvolume",image,step=epoch)
+ 

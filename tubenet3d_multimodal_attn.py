@@ -15,6 +15,7 @@ from model import tUbeNet
 import tUbeNet_functions_attn as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tensorflow import profiler
 #os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -123,7 +124,7 @@ if not prediction_only:
     filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=False, write_images=False)
-    #imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir) #currently glitched...
+    imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir) #currently glitched...
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
         
 	# Create directory of validation data
@@ -161,14 +162,16 @@ if not prediction_only:
         val_generator=DataGenerator(val_dir, **vparams)
         
         # TRAIN with validation
+        profiler.experimental.start(logdir)
         history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
-        
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+        profiler.experimental.stop(logdir)
     else:
         # TRAIN without validation
+        profiler.experimental.start(logdir)
     	history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, metricCallback])
-    
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+    	profiler.experimental.stop(logdir)    
     # SAVE MODEL
     if save_model:
         #model.save(os.path.join(model_path,updated_model_filename))
