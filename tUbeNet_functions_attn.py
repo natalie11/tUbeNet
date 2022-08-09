@@ -370,7 +370,7 @@ def piecewise_schedule(i, lr0, decay):
         decay = decay rate (float)
     """
 	lr = lr0 * decay**(i)
-    tf.summary.scalar('learning rate', data=lr, step=i)
+	tf.summary.scalar('learning rate', data=lr, step=i)
 	return lr
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------

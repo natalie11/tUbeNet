@@ -15,7 +15,6 @@ from model import tUbeNet
 import tUbeNet_functions_attn as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
-from tensorflow import profiler
 #os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -24,7 +23,7 @@ from tensorflow import profiler
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 200			         	# Number of epoch for training CNN
-steps_per_epoch = 30		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
@@ -162,16 +161,14 @@ if not prediction_only:
         val_generator=DataGenerator(val_dir, **vparams)
         
         # TRAIN with validation
-        profiler.experimental.start(logdir)
         history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=10, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
-        profiler.experimental.stop(logdir)
+
     else:
         # TRAIN without validation
-        profiler.experimental.start(logdir)
-    	history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+        history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                     callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
-    	profiler.experimental.stop(logdir)    
+   
     # SAVE MODEL
     if save_model:
         #model.save(os.path.join(model_path,updated_model_filename))

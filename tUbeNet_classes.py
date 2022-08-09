@@ -178,10 +178,11 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         self.x, self.y = self.data_generator.__getitem__(self.index)
         self.pred = self.model.predict(self.x)
         
-        z_centre = int(self.x.shape[1]/2)
-        img = self.x[0,z_centre,:,:,0] #take centre slice in z-stack
-        labels = np.argmax(self.y[0,z_centre,:,:,:], axis=-1) #reverse one hot encoding
-        pred = np.argmax(self.pred[0,z_centre,:,:,:], axis=-1) #reverse one hot encoding
+        x_shape=self.x.shape
+        z_centre = int(x_shape[1]/2)
+        img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
+        labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
+        pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
         
         with self.file_writer.as_default():
             tf.summary.image("Example output", [img, labels, pred], step=epoch)
