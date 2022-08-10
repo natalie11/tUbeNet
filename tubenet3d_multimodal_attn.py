@@ -114,16 +114,16 @@ if not prediction_only:
     #Log files
     date = datetime.datetime.now()
     filepath = os.path.join(model_path,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
-    log_dir = (os.path.join(model_path,'logs'))
+    log_dir = os.path.join(model_path,'logs')
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
     #Callbacks
     schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
-    filepath = os.path.join(model_path,"multimodal_checkpoint")
+    #filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=True, write_images=True)
-    imageCallback = ImageDisplayCallback(data_generator,log_dir=log_dir) #currently glitched...
+    imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) #currently glitched...
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
         
 	# Create directory of validation data
