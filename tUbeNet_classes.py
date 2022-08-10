@@ -156,7 +156,6 @@ class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs={}):
         # have tf log custom metrics and save to file
-        print()
         with self.file_writer.as_default():
             for k,v in zip(logs.keys(),logs.values()):
                 # iterate through monitored metrics (k) and values (v)
@@ -192,4 +191,61 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
             tf.summary.image("Example output", [img, labels, pred], step=epoch)
         print('images written')    
 
- 
+ class FilterDisplayCallback(tf.keras.callbacks.Callback):
+
+    def __init__(self,log_dir=None):
+        super().__init__()
+        self.log_dir = log_dir # directory where logs are saved
+        self.file_writer = tf.summary.create_file_writer(log_dir)
+        
+    def find_grid_dims(self, n):
+        # n = number of filters
+        # Starting at sqrt(n), check if i is a factor, if yes use i and n/i as rows/columns respectively
+        for i in range(int(sqrt(float(n))), 0, -1):
+            if n % i == 0: #NB is i==1, you have a prime number of filters..
+                return (i, int(n / i))   
+            
+    def make_grid(self, n, filters):
+        # n = number of filters
+        (rows, columns)=self.find_grid_dims(n)
+        # normalize filter between 0-1
+        f_min, f_max = filters.min(), filters.max()
+        filters = (filters - f_min) / (f_max - f_min)
+        cz = int(filters.get_shape()[0].get_value/2)
+        fig = plt.figure()
+        index=1
+        for i in range(rows):
+            for j in range(colummns):
+                plt.subplot(rows, colums, index)
+                plt.set_xticks([]) #no ticks
+                plt.set_yticks([])
+                plt.grid(False)
+                plt.imshow(filters[cz,:,:,0]) #plot central slice of 3D filter
+                index=index+1
+                
+        return fig
+
+    def plot_to_img(self, plot):            
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close(plot)
+        buf.seek(0)
+        image = tf.image.decode_png(buf.getvalue(), channels=4)
+        image = tf.expand_dims(image, 0)
+        return image
+
+    def on_epoch_end(self, epoch, logs={}):
+        # visualise filters for conv layers
+        for layer in model.layers:
+            # check for convolutional layer
+            if 'conv' not in layer.name:
+                continue
+            # get filter weights
+            filters, biases = layer.get_weights()
+
+            n = filters.get_shape()[-1].value #number of filters
+            plot = self.make_grid(n, filters)
+            image = self.plot_to_img(plot)
+            
+            with self.file_writer.as_default():
+                tf.summary.image("Convvolution filters, layer "+str(layer), image, step=epoch)

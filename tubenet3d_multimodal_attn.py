@@ -122,8 +122,9 @@ if not prediction_only:
     schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
     #filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
-    tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=True, write_images=True)
-    imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) #currently glitched...
+    tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
+    imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
+    filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
         
 	# Create directory of validation data
@@ -162,12 +163,12 @@ if not prediction_only:
         
         # TRAIN with validation
         history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=2, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
 
     else:
         # TRAIN without validation
         history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, metricCallback])
+                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
    
     # SAVE MODEL
     if save_model:
