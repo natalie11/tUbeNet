@@ -183,10 +183,13 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
         labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
         pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
-        
+        print('images generated')
+        img = tf.convert_to_tensor(img,dtype=tf.float32)
+        labels = tf.convert_to_tensor(labels,dtype=tf.float32)
+        pred = tf.convert_to_tensor(pred,dtype=tf.float32)
+        print('images converted')
         with self.file_writer.as_default():
             tf.summary.image("Example output", [img, labels, pred], step=epoch)
-            
-        return
+        print('images written')    
 
  
