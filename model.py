@@ -109,10 +109,10 @@ class DecodeBlock(tf.keras.layers.Layer):
 		self.lrelu = LeakyReLU(alpha=alpha)
 		self.channels = channels
 	def call (self, skip, x, attention=False):
-        if attention:
-            attn = AttnBlock(channels=self.channels)(skip, x)
-        else:
-            attn = concatenate([skip, x], axis=4)
+		if attention:
+			attn = AttnBlock(channels=self.channels)(skip, x)
+		else:
+			attn = concatenate([skip, x], axis=4)
 		transpose = self.transpose(attn)
 		activ1 = self.lrelu(transpose)
 		norm1 = self.norm(activ1)
@@ -128,6 +128,7 @@ class tUbeNet(tf.keras.Model):
         self.input_dims=input_dims
         self.dropout=dropout
         self.alpha=alpha
+        self.attention=attention
         
     def build(self):        
         inputs = Input((*self.input_dims, 1))
