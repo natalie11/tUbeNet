@@ -7,6 +7,7 @@ Developed by Natalie Holroyd (UCL)
 
 #Import libraries
 import numpy as np
+import math
 import tUbeNet_functions_attn as tube
 import random
 import pickle
@@ -182,16 +183,14 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
         labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
         pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
-        print('images generated')
         img = tf.convert_to_tensor(img,dtype=tf.float32)
         labels = tf.convert_to_tensor(labels,dtype=tf.float32)
         pred = tf.convert_to_tensor(pred,dtype=tf.float32)
-        print('images converted')
         with self.file_writer.as_default():
             tf.summary.image("Example output", [img, labels, pred], step=epoch)
-        print('images written')    
 
- class FilterDisplayCallback(tf.keras.callbacks.Callback):
+
+class FilterDisplayCallback(tf.keras.callbacks.Callback):
 
     def __init__(self,log_dir=None):
         super().__init__()
@@ -201,7 +200,7 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
     def find_grid_dims(self, n):
         # n = number of filters
         # Starting at sqrt(n), check if i is a factor, if yes use i and n/i as rows/columns respectively
-        for i in range(int(sqrt(float(n))), 0, -1):
+        for i in range(int(np.sqrt(float(n))), 0, -1):
             if n % i == 0: #NB is i==1, you have a prime number of filters..
                 return (i, int(n / i))   
             
@@ -211,16 +210,16 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         # normalize filter between 0-1
         f_min, f_max = filters.min(), filters.max()
         filters = (filters - f_min) / (f_max - f_min)
-        cz = int(filters.get_shape()[0].get_value/2)
+        cz = int(math.ceil(filters.shape[0]/2))
         fig = plt.figure()
         index=1
         for i in range(rows):
-            for j in range(colummns):
-                plt.subplot(rows, colums, index)
-                plt.set_xticks([]) #no ticks
-                plt.set_yticks([])
+            for j in range(columns):
+                plt.subplot(rows, columns, index)
+                plt.xticks([]) #no ticks
+                plt.yticks([])
                 plt.grid(False)
-                plt.imshow(filters[cz,:,:,0]) #plot central slice of 3D filter
+                plt.imshow(filters[cz,:,:,0,index-1]) #plot central slice of 3D filter
                 index=index+1
                 
         return fig
@@ -235,17 +234,13 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         return image
 
     def on_epoch_end(self, epoch, logs={}):
-        # visualise filters for conv layers
-        for layer in model.layers:
-            # check for convolutional layer
-            if 'conv' not in layer.name:
-                continue
-            # get filter weights
-            filters, biases = layer.get_weights()
-
-            n = filters.get_shape()[-1].value #number of filters
-            plot = self.make_grid(n, filters)
-            image = self.plot_to_img(plot)
+        # visualise filters for conv1 layer
+        layer=self.model.layers[1] #first block after input layer
+        # get filter weights
+        filters = layer.get_weights()[0] #first conv layer only
+        n = filters.shape[-1] #number of filters
+        plot = self.make_grid(n, filters)
+        image = self.plot_to_img(plot)
             
-            with self.file_writer.as_default():
-                tf.summary.image("Convvolution filters, layer "+str(layer), image, step=epoch)
+        with self.file_writer.as_default():
+            tf.summary.image("Convolution 1 filters from layer "+str(layer.name), image, step=epoch)

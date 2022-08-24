@@ -13,7 +13,7 @@ import numpy as np
 import datetime
 from model import tUbeNet
 import tUbeNet_functions_attn as tube
-from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback
+from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 #os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
@@ -23,14 +23,14 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 200			         	# Number of epoch for training CNN
-steps_per_epoch = 3		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
 loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
-augment = False     	        	# Augment training data, True/False
-lr0 = 1e-5                          # Initial learning rate
+augment = True     	        	# Augment training data, True/False
+lr0 = 1e-4                          # Initial learning rate
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
