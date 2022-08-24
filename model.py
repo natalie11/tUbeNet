@@ -108,8 +108,11 @@ class DecodeBlock(tf.keras.layers.Layer):
 		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
 		self.lrelu = LeakyReLU(alpha=alpha)
 		self.channels = channels
-	def call (self, skip, x):
-		attn = AttnBlock(channels=self.channels)(skip, x)
+	def call (self, skip, x, attention=False):
+        if attention:
+            attn = AttnBlock(channels=self.channels)(skip, x)
+        else:
+            attn = concatenate([skip, x], axis=4)
 		transpose = self.transpose(attn)
 		activ1 = self.lrelu(transpose)
 		norm1 = self.norm(activ1)
@@ -119,7 +122,7 @@ class DecodeBlock(tf.keras.layers.Layer):
 		return norm2
 
 class tUbeNet(tf.keras.Model):   
-    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2):
+    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2, attention=False):
         super(tUbeNet,self).__init__()
         self.n_classes=n_classes
         self.input_dims=input_dims
@@ -142,11 +145,11 @@ class tUbeNet(tf.keras.Model):
         block6 = LeakyReLU(alpha=self.alpha)(block6)
         block6 = tfa.layers.GroupNormalization(groups=int(512/4), axis=4)(block6)
         
-        upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6)
-        upblock2 = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1)
-        upblock3 = DecodeBlock(channels=128, alpha=self.alpha)(block3, upblock2)
-        upblock4 = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3)
-        upblock5 = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4)
+        upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
+        upblock2 = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1, attention=self.attention)
+        upblock3 = DecodeBlock(channels=128, alpha=self.alpha)(block3, upblock2, attention=self.attention)
+        upblock4 = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3, attention=self.attention)
+        upblock5 = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4, attention=self.attention)
     
         out = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5)
         model = Model(inputs=[inputs], outputs=[out]) 

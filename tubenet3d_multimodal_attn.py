@@ -31,6 +31,7 @@ loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical c
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 augment = True     	        	# Augment training data, True/False
 lr0 = 1e-4                          # Initial learning rate
+attention = False
 
 # Training and prediction options
 use_saved_model = False	        	# use previously saved model structure and weights? Yes=True, No=False
@@ -97,7 +98,7 @@ data_generator=DataGenerator(data_dir, **params)
 # callbacks              
 #time_callback = tube.TimeHistory()		      
 #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
-tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims)
+tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
 
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
