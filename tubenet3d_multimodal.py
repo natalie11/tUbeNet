@@ -12,7 +12,7 @@ from functools import partial
 import numpy as np
 import datetime
 from model import tUbeNet
-import tUbeNet_functions_attn as tube
+import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 #os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
@@ -28,9 +28,9 @@ batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
 loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
-class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
-augment = True     	        	# Augment training data, True/False
 lr0 = 1e-4                          # Initial learning rate
+class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
+augment = True        	        	# Augment training data, True/False
 attention = False
 
 # Training and prediction options

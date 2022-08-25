@@ -12,7 +12,7 @@ from functools import partial
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model, model_from_json
 # CNN layers
-from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout
+from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout, Dense, Flatten
 # utilities
 from tensorflow.keras.utils import multi_gpu_model #np_utils
 # opimiser
@@ -130,7 +130,7 @@ class tUbeNet(tf.keras.Model):
         self.alpha=alpha
         self.attention=attention
         
-    def build(self):        
+    def build(self, encoder_only=False):        
         inputs = Input((*self.input_dims, 1))
              
         block1 = EncodeBlock(channels=32, alpha=self.alpha, dropout=self.dropout)(inputs)
@@ -146,18 +146,26 @@ class tUbeNet(tf.keras.Model):
         block6 = LeakyReLU(alpha=self.alpha)(block6)
         block6 = tfa.layers.GroupNormalization(groups=int(512/4), axis=4)(block6)
         
-        upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
-        upblock2 = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1, attention=self.attention)
-        upblock3 = DecodeBlock(channels=128, alpha=self.alpha)(block3, upblock2, attention=self.attention)
-        upblock4 = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3, attention=self.attention)
-        upblock5 = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4, attention=self.attention)
+        if encoder_only:
+            dense1 = Flatten()(block6)
+            dense1 = Dense(64, activation='linear', kernel_initializer='he_uniform')(dense1)
+            dense1 = LeakyReLU(alpha=self.alpha)(dense1)
+            output = Dense(1, activation='softmax')(dense1)
+            
+        else:
+            upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
+            upblock2 = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1, attention=self.attention)
+            upblock3 = DecodeBlock(channels=128, alpha=self.alpha)(block3, upblock2, attention=self.attention)
+            upblock4 = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3, attention=self.attention)
+            upblock5 = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4, attention=self.attention)
     
-        out = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5)
-        model = Model(inputs=[inputs], outputs=[out]) 
+            output = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5)
+            
+        model = Model(inputs=[inputs], outputs=[output]) 
         
         return model
     
-    def create(self, loss=None, class_weights=(1,1), learning_rate=1e-3, metrics=['accuracy']):
+    def create(self, loss=None, class_weights=(1,1), learning_rate=1e-3, metrics=['accuracy'], encoder_only=False):
         if loss == 'weighted categorical crossentropy':
             custom_loss=partial(weighted_crossentropy, weights=class_weights)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
@@ -179,10 +187,10 @@ class tUbeNet(tf.keras.Model):
             strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
             print("Creating model on {} GPUs".format(n_gpus))
             with strategy.scope():	
-    	           model = self.build()
+    	           model = self.build(encoder_only=encoder_only)
     	           model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
         else:
-            model = self.build()
+            model = self.build(encoder_only=encoder_only)
             model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
         
         return model

@@ -8,7 +8,7 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import numpy as np
 import math
-import tUbeNet_functions_attn as tube
+import tUbeNet_functions as tube
 import random
 import pickle
 import os
@@ -42,7 +42,8 @@ class DataDir:
 	    self.data_type = data_type
 
 class DataGenerator(Sequence):
-	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, dataset_weighting=None, augment=False):
+	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
+              dataset_weighting=None, augment=False, classifier=False):
 	    'Initialization'
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
@@ -52,6 +53,7 @@ class DataGenerator(Sequence):
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
 	    self.augment = augment
+	    self.classifier = classifier
 	    
 	def __len__(self):
 		'Denotes the number of batches per epoch'
@@ -69,10 +71,11 @@ class DataGenerator(Sequence):
 		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
 		# Generate data
-		X, y = self.__data_generation(list_IDs_temp)
-        
-		if self.augment:
-		    X, y = self._augmentation(X,y)
+		if self.classifier: X, y = self.__data_generation_classifier(list_IDs_temp)
+		else: 
+		    X, y = self.__data_generation(list_IDs_temp)
+		    if self.augment: #classifier data cannot be augmented by current function
+		        self._augmentation(X,y)
 
 		# Reshape to add depth of 1
 		X = X.reshape(*X.shape, 1)
@@ -108,6 +111,34 @@ class DataGenerator(Sequence):
                            coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
 	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
+                     
+	    return X, to_categorical(y, num_classes=self.n_classes)
+    
+	def __data_generation_classifier(self, list_IDs_temp):
+	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
+	    # Initialization
+	    X = np.empty((self.batch_size, *self.volume_dims))
+	    y = np.zeros((self.batch_size))
+	    for i, ID_temp in enumerate(list_IDs_temp):
+		    index=self.data_dir.list_IDs.index(ID_temp)
+                        
+		    vessels_present=False
+		    count=0
+		    while vessels_present==False:
+	    	     # Generate random coordinates within dataset
+	    	     count = count+1
+	    	     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
+                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
+                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
+	    	     #print('coords_temp: {}'.format(coords_temp)) 
+	    	     # Generate data sub-volume at coordinates, add to batch
+	    	     X[i], y_temp = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
+                           image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
+                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
+	    	     if (np.count_nonzero(y_temp[...,1])/y_temp[...,1].size)>0.002: #sub-volume must contain at least 0.2% vessels to be labeled as vessel
+	    	        y[i]=1 #label as containing vessels
+	    	        vessels_present=True
+	    	     elif count>3: vessels_present=True #generate next sample
                      
 	    return X, to_categorical(y, num_classes=self.n_classes)
     
