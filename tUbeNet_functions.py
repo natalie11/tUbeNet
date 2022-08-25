@@ -11,6 +11,7 @@ import numpy as np
 import random
 import math
 from functools import partial
+from model import tUbeNet
 
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model, model_from_json
@@ -276,7 +277,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
+"""Custom loss functions"""
 def weighted_crossentropy(y_true, y_pred, weights):
 	"""Custom loss function - weighted to address class imbalance"""
 	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
@@ -294,7 +295,6 @@ def precision(y_true, y_pred):
     predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
     precision = true_positives / (predicted_positives + K.epsilon())
     return precision
-
 
 def recall(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
@@ -360,177 +360,7 @@ class TimedStopping(Callback):
             if self.verbose:
                 print('Stopping after %s seconds.' % self.seconds)
 
-#---------------------------------------------------------------------------------------------------------------------------------------------------
 
-def tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
-            learning_rate=1e-3, loss=None, metrics=['accuracy'], dropout=0.25,
-            alpha=0.2, class_weights=(1,7)):
-    """tUbeNet model
-    Inputs:
-        n_classes = number of classes (int, default 2)
-        input_height = hight of input image (int, default 64)
-        input_width = width of input image (int, default 64)
-        input_depth = depth of input image (int, default 64)
-        learning_rate = learning rate (float, default 1e-3)
-        loss = loss function, function or string
-        metrics = training metrics, list of functions or strings
-    Outputs:
-        model = compiled model
-        model_gpu = compiled multi-GPU model
-    
-    Adapted from:
-    https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
-    """
-    
-    def create_model_structure():
-        inputs = Input((input_depth, input_height, input_width, 1))
-        conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(inputs)
-        activ1 = LeakyReLU(alpha=alpha)(conv1)
-        conv1 = Conv3D(32, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')(activ1)
-        activ1 = LeakyReLU(alpha=alpha)(conv1)
-        pool1 = MaxPooling3D(pool_size=(2, 2, 2))(activ1)
-        drop1 = Dropout(dropout)(pool1)   
-          
-        conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop1)
-        activ2 = LeakyReLU(alpha=alpha)(conv2)
-        conv2 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ2)
-        activ2 = LeakyReLU(alpha=alpha)(conv2)
-        pool2 = MaxPooling3D(pool_size=(2, 2, 2))(activ2)
-        drop2 = Dropout(dropout)(pool2)
-         
-        conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop2)
-        activ3 = LeakyReLU(alpha=alpha)(conv3)
-        conv3 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ3)
-        activ3 = LeakyReLU(alpha=alpha)(conv3)
-        pool3 = MaxPooling3D(pool_size=(2, 2, 2))(activ3)
-        drop3 = Dropout(dropout)(pool3)
-    
-        conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop3)
-        activ4 = LeakyReLU(alpha=alpha)(conv4)
-        conv4 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ4)
-        activ4 = LeakyReLU(alpha=alpha)(conv4)			
-        pool4 = MaxPooling3D(pool_size=(2, 2, 2))(activ4)
-        drop4 = Dropout(dropout)(pool4)
-      
-        conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop4)
-        activ5 = LeakyReLU(alpha=alpha)(conv5)
-        conv5 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ5)
-        activ5 = LeakyReLU(alpha=alpha)(conv5)
-        pool5 = MaxPooling3D(pool_size=(2, 2, 2))(activ5)    
-        drop5 = Dropout(dropout)(pool5)
-          
-        conv6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(drop5)
-        activ6 = LeakyReLU(alpha=alpha)(conv6)
-        conv6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ6)
-        activ6 = LeakyReLU(alpha=alpha)(conv6)
-    
-        up7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ6), activ5], axis=4)    
-        conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up7)
-        activ7 = LeakyReLU(alpha=alpha)(conv7)
-        conv7 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ7)
-        activ7 = LeakyReLU(alpha=alpha)(conv7)   
-    
-        up8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ7), activ4], axis=4)
-        conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up8)
-        activ8 = LeakyReLU(alpha=alpha)(conv8)
-        conv8 = Conv3D(256, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ8)
-        activ8 = LeakyReLU(alpha=alpha)(conv8)
-    
-        up9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ8), activ3], axis=4)
-        conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up9)
-        activ9 = LeakyReLU(alpha=alpha)(conv9)
-        conv9 = Conv3D(128, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ9)
-        activ9 = LeakyReLU(alpha=alpha)(conv9)
-    
-        up10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ9), activ2], axis=4)
-        conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up10)
-        activ10 = LeakyReLU(alpha=alpha)(conv10)
-        conv10 = Conv3D(64, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ10)
-        activ10 = LeakyReLU(alpha=alpha)(conv10)
-    
-        up11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')(activ10), activ1], axis=4)
-        conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(up11)
-        activ11 = LeakyReLU(alpha=alpha)(conv11)
-        conv11 = Conv3D(32, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(activ11)    
-        activ11 = LeakyReLU(alpha=alpha)(conv11)
-        
-        conv12 = Conv3D(n_classes, (1, 1, 1), activation='softmax')(activ11)
-        
-        model = Model(inputs=[inputs], outputs=[conv12]) 
-        
-        if loss == 'weighted categorical crossentropy':
-            custom_loss=partial(weighted_crossentropy, weights=class_weights)
-            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = weighted_crossentropy.__module__
-        elif loss == 'DICE BCE':
-            custom_loss=partial(DiceBCELoss,smooth=1e-6)
-            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = DiceBCELoss.__module__
-        else:
-            print('Loss not recognised, using categorical crossentropy')
-            custom_loss='categorical_crossentropy'
-            
-        return model, custom_loss
-        
-    # create and compile model
-    physical_devices = tf.config.list_physical_devices('GPU')
-    n_gpus=len(physical_devices)
-    if n_gpus >1:
-        strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
-        print("Creating model on {} GPUs".format(n_gpus))
-        with strategy.scope():	
-    	    model, custom_loss=create_model_structure()
-    	    model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
-    else:
-        model, custom_loss = create_model_structure()
-        model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
-        
-    return model
-
-
-def fine_tuning(model=None, n_classes=2, freeze_layers=0, 
-                learning_rate=1e-5, loss=None, class_weights=None, metrics=['accuracy']):
-    """ Fine Tuning
-    Replaces classifer layer and freezes shallow layers for fine tuning
-    Inputs:
-        model = ML model
-        n_classes = number of classes (int, default 2)
-        freeze_layers = number of layers to freeze for training (int, default 0)
-        learning_rate = learning rate (float, default 1e-5)
-        loss = loss function, function or string
-        metrics = training metrics, list of functions or strings
-    Outputs:
-        model = compiled model
-    """
-    #Count GPUs
-    physical_devices = tf.config.list_physical_devices('GPU')
-    n_gpus=len(physical_devices)
-    
-    # recover the output from the last layer in the model and use as input to new Classifer
-    last = model.layers[-2].output
-    classifier = Conv3D(n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-    # rename new classifier layer to avoid error caused by layer having the same name as first layer of base model
-
-    model = Model(inputs=[model.input], outputs=[classifier])
-    # freeze weights for selected layers
-    for layer in model.layers[:freeze_layers]: layer.trainable = False
-    if loss == 'weighted categorical crossentropy':
-            custom_loss=partial(weighted_crossentropy, weights=class_weights)
-            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = weighted_crossentropy.__module__
-    elif loss == 'DICE BCE':
-            custom_loss=partial(DiceBCELoss,smooth=1e-6)
-            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = DiceBCELoss.__module__
-    else:
-            print('Loss not recognised, using categorical crossentropy')
-            custom_loss='categorical_crossentropy'
-
-    model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
-        
-    return model
-
- 
 def piecewise_schedule(i, lr0, decay):
 	""" Learning rate function 
     Updates learning rate at end epoch.
@@ -540,107 +370,10 @@ def piecewise_schedule(i, lr0, decay):
         decay = decay rate (float)
     """
 	lr = lr0 * decay**(i)
+	tf.summary.scalar('learning rate', data=lr, step=i)
 	return lr
 
-# train model on image_stack and corrosponding labels
-# def train_model(model=None, model_gpu=None, 
-#                 image_stack=None, labels=None, 
-#                 image_test=None, labels_test=None, 
-#                 volume_dims=(64,64,64), batch_size=2, n_rep=100, n_epochs=2,
-#                 path=None, model_filename=None, output_filename=None):
-#     """ Training 
-#     Inputs:
-#         model = ML model
-#         model_gpu = model compiled on multiple GPUs
-#         image_stack = np array of image data (z, x, y)
-#         labels = np array of labels, (z, x, y, c) where c is number of classes
-#         image_test = valdiation image data
-#         labels_test = validation label data
-#         voume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
-#         batch_size = number of image sub volumes per batch int, default 2)
-#         n_rep = number of training iterations - each iteration is trained on a new batch of sub-voumes (int, default 100)
-#         n_epochs = number of epochs per training iteration (int, default 2)
-#         path = path for saving outputs and updated model
-#         model_filename = filename for trained model
-#         output_filename = filename for saving output graphs
-#     """
-
-#     print('Training model')
-#     print('Number of epochs = {}'.format(n_epochs))
-#     accuracy_list=[]   
-#     precision_list=[]
-#     recall_list=[] 
-#     training_cycle_list=[] 
-    
-#     classes = np.unique(labels)
-#     n_classes = len(classes)
-#     print('Training with {} classes'.format(n_classes)) 
-      
-#     # Train for *n_rep* cycles of *n_epochs* epochs, loading a new batch of volumes every cycle
-#     for i in range(n_rep):
-# 	    print('Training cycle {}'.format(i))
-      
-#       # When loading a batch of volumes, check for the percentage of vessel pixels present and only train of volumes containing >0.01% vessels
-#       # These numbers may need to be changed depending on the vessel density in the data being analysed
-# 	    vessels_present = False
-# 	    while vessels_present==False:
-# 		    vol_batch, labels_batch = load_batch(batch_size=batch_size, volume_dims=volume_dims, 
-#                                            n_classes=n_classes, image_stack=image_stack, labels=labels)
-# 		    if 0.001<(np.count_nonzero(labels_batch[:,:,:,:,1])/labels_batch[:,:,:,:,1].size):
-# 			    vessels_present = True
-# 		    else:
-# 			    del vol_batch, labels_batch
-# 			    
-# 	    # update learning rate decay with a piecewise contasnt decay rate of 0.1 every 5000 iterations
-# 	    if i % 5000 == 0 and i != 0:
-# 		    setLR(model_gpu, i, 'piecewise')
-          
-# 	    # fit model
-# 	    model_gpu.fit(vol_batch, labels_batch, batch_size=batch_size, epochs=n_epochs, verbose=1)
-# 	    
-#         # calculate metrics for validation data (every 400 training iterations)
-# 	    if i in range(6000,50001,400):
-# 		    if image_test is not None:
-# 			    training_cycle_list.append(i)
-# 			    print('start prediction')
-# 			    predict_segmentation(model_gpu=model_gpu, image_stack=image_test, labels=labels_test, 
-#                                volume_dims=volume_dims, batch_size=batch_size, classes=classes,
-#                                accuracy_list=accuracy_list, precision_list=precision_list, recall_list=recall_list, 
-#                                save_output= False, binary_output=False, validation_output=True)
-# 			    print('end prediction')
-                
-#         # save model every 1000 iterations
-# 	    if i in range(1000,50001,1000):
-# 		    save_model(model, path, model_filename)
-# 		    
-#     if output_filename is not None:
-#         # plot accuracy
-#         plt.plot(training_cycle_list,accuracy_list)
-#         plt.title('Model accuracy')
-#         plt.ylabel('Accuracy')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_accuracy')
-#         plt.show()
-        
-#         # plot precision    
-#         plt.plot(training_cycle_list,precision_list)
-#         plt.title('Model precision')
-#         plt.ylabel('Precision')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_precision')
-#         plt.show()
-        
-#         # plot recall    
-#         plt.plot(training_cycle_list,recall_list)
-#         plt.title('Model recall')
-#         plt.ylabel('Recall')
-#         plt.xlabel('Training iterations')
-#         plt.savefig(path+output_filename+'_recall')
-#         plt.show()   
-
-#     return training_cycle_list, accuracy_list, precision_list, recall_list
-
-
+#---------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model=None, data_dir=None, 
@@ -712,7 +445,7 @@ def predict_segmentation(model=None, data_dir=None,
                                        coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128) #only take first output						
     			# predict segmentation using model
             vol_pred_ohe = model.predict(vol,verbose=1) 
-            vol_pred_ohe=vol_pred_ohe[0]
+            #vol_pred_ohe=vol_pred_ohe[0] #Required if output is a tuple of the prediction array and 
             del vol
       
             # average overlapped region in z axis
@@ -863,76 +596,6 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	
 	return img
 
-
-def load_saved_model(model_path=None, filename=None,
-                     learning_rate=1e-3, loss=None, class_weights=None, metrics=['accuracy'],
-                     freeze_layers=None, n_classes=2, fine_tune=False):
-	"""# Load Saved Model
-    Inputs:
-        model_path = path of model to be opened (string)
-        filename = model filename (string)
-        fine_tune = if 'True' model with be prepared for fine tuning with default settings (bool, default 'False')
-        freese_layers = number of shallow layers that won't be trained if fine tuning (int, default none)
-        n_classes = number of unique classes (int, default 2)
-        loss = loss function to be used in training
-        metrics = metrics to be monitored during training (default 'accuracy') 
-        learning_rate = learning rate for training (float, default 1e-3)
-    Outputs:
-        model = ML model
-    """
-	import tensorflow_addons as tfa
-	physical_devices = tf.config.list_physical_devices('GPU')
-	n_gpus=len(physical_devices)
-    
-    # create path for file containing weights
-	if os.path.isfile(os.path.join(model_path,filename+'.h5')):
-	    mfile = os.path.join(model_path,filename+'.h5') 
-	elif os.path.isfile(os.path.join(model_path,filename+'.hdf5')):
-	    mfile = os.path.join(model_path,filename+'.hdf5')
-	else: print("No model weights file found")
-    
-    # create path for file containing model template in json format
-	jsonfile = os.path.join(model_path,filename+'.json') 
-	with open(jsonfile, 'r') as json_file:
-    	# load model from json
-		model_json = json_file.read()
-        
-	if fine_tune:
-	    if n_gpus>1:
-		    strategy = tf.distribute.MirroredStrategy(cross_device_ops = tf.distribute.HierarchicalCopyAllReduce())
-		    print("Creating model on {} GPUs".format(n_gpus))
-		    with strategy.scope():
-		    	model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
-		    	# load weights into new model
-		    	model.load_weights(mfile)
-		    	model = fine_tuning(model=model, freeze_layers=freeze_layers, 
-                                 learning_rate=learning_rate, loss=loss, class_weights=class_weights, metrics=metrics)
-	    else:
-		    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
-		    # load weights into new model
-		    model.load_weights(mfile)
-		    model = fine_tuning(model=model, freeze_layers=freeze_layers, 
-                                 learning_rate=learning_rate, loss=loss, class_weights=class_weights, metrics=metrics)
-
-	else:
-	    if n_gpus>1:
-		    strategy = tf.distribute.MirroredStrategy()
-		    print("Creating model on {} GPUs".format(n_gpus))
-		    with strategy.scope():
-		    	model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
-		    	# load weights into new model
-		    	model.load_weights(mfile)
-		    	model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-	    else:
-		    model = model_from_json(model_json, custom_objects={"Addons>InstanceNormalization":tfa.layers.InstanceNormalization})
-		    # load weights into new model
-		    model.load_weights(mfile)
-		    model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
-
-	print('Model Summary')
-	model.summary()
-	return model
-
 # SAVE MODEL
 def save_model(model, model_path, filename):
 	"""# Save Model as .json and .h5 (weights)
@@ -1029,7 +692,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         # Plot ROC 
         fig = plt.figure()
         plt.plot(fpr, tpr, color='darkorange',
-                 lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
+                lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
         plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
