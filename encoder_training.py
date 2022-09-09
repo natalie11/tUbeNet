@@ -22,13 +22,13 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 200			         	# Number of epoch for training CNN
+n_epochs = 100			         	# Number of epoch for training CNN
 steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
-batch_size = 2		 	       	    # Batch size for training CNN
+batch_size = 16		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
-lr0 = 1e-4                          # Initial learning rate
-loss = "focal"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
+lr0 = 1e-3                          # Initial learning rate
+loss = None	        	            # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
 augment = False      	           	# Augment training data, True/False
 attention = False
@@ -48,9 +48,9 @@ data_path = 'F:/Paired datasets/train/headers'
 val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired datasets/models/attn'
+model_path = 'F:/Paired datasets/models/encoder_only'
 model_filename = None # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'attn_unet_focal' # model will be saved under this name
+updated_model_filename = 'pretrained_encoder' # model will be saved under this name
 
 # Image output
 output_filename = 'F:/Paired datasets/attn_pred'
@@ -98,8 +98,8 @@ data_generator=DataGenerator(data_dir, **params)
 
 tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
 
-model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights, encoder_only=classifier
-                           metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights, encoder_only=classifier,
+                           metrics=['accuracy'])
 
 """ Train model """
 date = datetime.datetime.now()
@@ -111,9 +111,8 @@ if not os.path.exists(log_dir):
 #Callbacks
 schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
 #filepath = os.path.join(model_path,"multimodal_checkpoint")
-checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+checkpoint = ModelCheckpoint(filepath, monitor='accuracy', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
 tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
-imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
 filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
 metricCallback = MetricDisplayCallback(log_dir=log_dir)
     
@@ -154,12 +153,12 @@ if val_path is not None:
     
     # TRAIN with validation
     history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=2, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
+                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, filterCallback, metricCallback])
 
 else:
     # TRAIN without validation
     history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
+                                callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback,  filterCallback, metricCallback])
    
 # SAVE MODEL
 if save_model:

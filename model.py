@@ -150,7 +150,7 @@ class tUbeNet(tf.keras.Model):
             dense1 = Flatten()(block6)
             dense1 = Dense(64, activation='linear', kernel_initializer='he_uniform')(dense1)
             dense1 = LeakyReLU(alpha=self.alpha)(dense1)
-            output = Dense(1, activation='softmax')(dense1)
+            output = Dense(2, activation='softmax')(dense1)
             
         else:
             upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
