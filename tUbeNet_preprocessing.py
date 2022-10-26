@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import os
 import numpy as np
-import tUbeNet_functions_attn as tube
+import tUbeNet_functions as tube
 from tUbeNet_classes import DataHeader
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = 'F:/sws_corrosioncast'
-image_filename = "20200512134413_127481_crop500.tiff"
+path = 'F:/Paired data/Image_data'
+image_filename = "BrainLectin_filter4(farred)_G8_exp0.9_1-303.tif"
 label_filename = None
 
 # Output directory
-output_path = "F:/sws_corrosioncast"
-output_name = "corrosioncast_data"
+output_path = "F:/Paired data/Preprocessed_data"
+output_name = "HREM_brain_substack_1-303"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

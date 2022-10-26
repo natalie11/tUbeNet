@@ -135,7 +135,7 @@ class DataGenerator(Sequence):
 	    	     X[i], y_temp = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
                            image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
                            coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
-	    	     if (np.count_nonzero(y_temp[...,1])/y_temp[...,1].size)>0.01: #sub-volume must contain at least 1% vessels to be labeled as vessel
+	    	     if (np.count_nonzero(y_temp[...,1])/y_temp[...,1].size)>0.02: #sub-volume must contain at least 2% vessels to be labeled as vessel
 	    	        y[i]=1 #label as containing vessels
 	    	        vessels_present=True
 	    	     elif count>5: vessels_present=True #generate next sample

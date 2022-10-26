@@ -93,7 +93,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
     # check for sensible coordinates
     for i in range(3):
       if coords[i]<0 or coords[i]>(image_dims[i]-volume_dims[i]):
-        raise Exception('Coordinates out of range')
+        raise Exception('Coordinates out of range in dimension'+str(i))
   else:
     # generate random coordinates for upper left corner of volume
     coords = np.zeros(3)
@@ -378,7 +378,7 @@ def piecewise_schedule(i, lr0, decay):
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model=None, data_dir=None, 
                          volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
-                         binary_output=True, save_output= True, prediction_filename = None, path=None): 
+                         binary_output=True, save_output=True, path=None): 
   """# Prediction
     Inputs:
         model = ML model
@@ -432,9 +432,14 @@ def predict_segmentation(model=None, data_dir=None,
     			
         for i in range (int(data_dir.image_dims[index][1]/step_size[1])):
           x = i*step_size[1] # x coordinate for batch
+          # break if batch will go outside of range of image
+          if (data_dir.image_dims[index][1]-x)<(step_size[1]+overlap):
+            break
     	
           for j in range (int(data_dir.image_dims[index][2]/step_size[2])):
             y = j*step_size[2] # y coordinate for batch		
+            if (data_dir.image_dims[index][2]-y)<(step_size[2]+overlap):
+              break
             
             # Create batch along z axis of image (axis 0 of image stack)
             vol = np.zeros((batch_size, *volume_dims))
@@ -520,7 +525,7 @@ def predict_segmentation(model=None, data_dir=None,
     	# save segmented images from this batch
         if save_output==True:
           for im in range (seg_pred.shape[0]):
-            filename = os.path.join(path,str(z+im+1)+"_"+str(prediction_filename)+".tif")
+            filename = os.path.join(path,data_dir.list_IDs[index]+"_prediction_"+str(z+im+1)+".tif")
             save_image(seg_pred[im,:,:], filename)
 					
 
@@ -554,8 +559,17 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 	  
 	# Normalise 
 	print('Rescaling data between 0 and 1')
-	img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
-	
+	try:
+		img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
+	except: 
+        # break image up into quarters and normalise one chunck at a time
+		quarter=int(img.shape[0]/4)
+		img_min = np.amin(img)
+		denominator = np.amax(img)-img_min
+		for i in range (3):
+			img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
+		img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
+        
 	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
 	# Set the images to 1024x1024 (2^10) arrays
 	if pad_array is not None:
@@ -613,7 +627,8 @@ def save_model(model, model_path, filename):
 		# serialize weights to HDF5
 	model.save_weights(mfile_new)
 
-def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), save_prediction=False, prediction_filename=None): 
+def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
+                 save_prediction=False, prediction_filename=None, binary_output=False): 
     optimal_thresholds = []
     recall = []
     precision = []
@@ -680,13 +695,18 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         print('Precision at optimal threshold: {}'.format(1-fpr[optimal_idx]))
         precision.append(1-fpr[optimal_idx])
         
+        if binary_output:
+            binary_pred = np.zeros(y_pred_all.shape)
+            binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
+            y_pred_all = binary_pred
+        
         # Save predicted segmentation      
         if save_prediction:
             # threshold using optimal threshold
             #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
             for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'.tif')
-                save_image(y_test_all[im,:,:], prediction_filename+'_'+str(data_dir.list_IDs[index])+'_'+str(im+1)+'true.tif')
+                save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
+                save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
             print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
         # Plot ROC 
@@ -701,6 +721,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
         plt.show()
-        fig.savefig('F:\Paired datasets\ROC_'+str(data_dir.list_IDs[index])+'.png')
+        fig.savefig(os.path.join(prediction_filename,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
 
     return optimal_thresholds, recall, precision

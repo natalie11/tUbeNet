@@ -23,10 +23,10 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 100			         	# Number of epoch for training CNN
-steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+steps_per_epoch = 10		             # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 16		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
-dataset_weighting = [30,60,10]      # Relative weighting when pulling training data from multiple datasets
+dataset_weighting = [35,65, 0]      # Relative weighting when pulling training data from multiple datasets
 lr0 = 1e-3                          # Initial learning rate
 loss = None	        	            # "DICE BCE", "focal" or "weighted categorical crossentropy"
 class_weights = None	        	# if using weighted loss: relative weighting of background to blood vessel classes
@@ -48,12 +48,10 @@ data_path = 'F:/Paired datasets/train/headers'
 val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired datasets/models/encoder_only'
+model_path = 'F:/Paired datasets/models/encoder_only_100epochs'
 model_filename = None # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'pretrained_encoder' # model will be saved under this name
+updated_model_filename = 'pretrained_encoder_100epochs' # model will be saved under this name
 
-# Image output
-output_filename = 'F:/Paired datasets/attn_pred'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -103,16 +101,15 @@ model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights
 
 """ Train model """
 date = datetime.datetime.now()
-filepath = os.path.join(model_path,"{}_model_checkpoint".format(date.strftime("%d%m%y")))
+ckpt = os.path.join(model_path,"{}_model_checkpoint.h5".format(date.strftime("%d%m%y")))
 log_dir = os.path.join(model_path,'logs')
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
     
 #Callbacks
 schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
-#filepath = os.path.join(model_path,"multimodal_checkpoint")
-checkpoint = ModelCheckpoint(filepath, monitor='accuracy', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
-tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
+checkpoint = ModelCheckpoint(ckpt, monitor='accuracy', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=True, write_images=False)
 filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
 metricCallback = MetricDisplayCallback(log_dir=log_dir)
     

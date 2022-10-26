@@ -120,6 +120,35 @@ class DecodeBlock(tf.keras.layers.Layer):
 		activ2 = self.lrelu(conv)
 		norm2 = self.norm(activ2)
 		return norm2
+    
+class UBlock(tf.keras.layers.Layer):
+	def __init__(self, channels=32, alpha=0.2):
+		super(UBlock,self).__init__()     
+		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
+		self.conv2 = Conv3D(int(channels/2), (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
+		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		self.lrelu = LeakyReLU(alpha=alpha)
+	def call (self, x):
+		conv1 = self.conv1(x)
+		activ1 = self.lrelu(conv1)
+		norm1 = self.norm(activ1)
+		conv2 = self.conv2(norm1)
+		activ2 = self.lrelu(conv2)
+		return activ2
+    
+class EncoderOnlyOutput(tf.keras.layers.Layer):
+	def __init__(self, channels=64, alpha=0.2):
+		super(EncoderOnlyOutput,self).__init__()
+		self.flatten = Flatten()
+		self.dense1 = Dense(channels, activation='linear', kernel_initializer='he_uniform')
+		self.dense2 = Dense(2, activation='softmax') #classifier
+		self.lrelu = LeakyReLU(alpha=alpha)
+	def call (self, x):
+		flatten = self.flatten(x)
+		dense1 = self.dense1(flatten)
+		activ1 = self.lrelu(dense1)
+		dense2 = self.dense2(activ1)
+		return dense2
 
 class tUbeNet(tf.keras.Model):   
     def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2, attention=False):
@@ -139,18 +168,10 @@ class tUbeNet(tf.keras.Model):
         block4 = EncodeBlock(channels=256, alpha=self.alpha, dropout=self.dropout)(block3)
         block5 = EncodeBlock(channels=512, alpha=self.alpha, dropout=self.dropout)(block4)
         
-        block6 = Conv3D(1024, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(block5)
-        block6 = LeakyReLU(alpha=self.alpha)(block6)
-        block6 = tfa.layers.GroupNormalization(groups=int(1024/4), axis=4)(block6)
-        block6 = Conv3D(512, (3, 3, 3), activation='linear', padding='same', kernel_initializer='he_uniform')(block6)
-        block6 = LeakyReLU(alpha=self.alpha)(block6)
-        block6 = tfa.layers.GroupNormalization(groups=int(512/4), axis=4)(block6)
+        block6 = UBlock(channels=1024, alpha=self.alpha)(block5)
         
         if encoder_only:
-            dense1 = Flatten()(block6)
-            dense1 = Dense(64, activation='linear', kernel_initializer='he_uniform')(dense1)
-            dense1 = LeakyReLU(alpha=self.alpha)(dense1)
-            output = Dense(2, activation='softmax')(dense1)
+            output = EncoderOnlyOutput(channels=64, alpha=self.alpha)(block6)
             
         else:
             upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
@@ -282,7 +303,82 @@ class tUbeNet(tf.keras.Model):
         model.summary()
         return model
         
+    def load_encoder(self, filename=None, loss=None, class_weights=(1,1), 
+             learning_rate=1e-5, metrics=['accuracy']):
+        """ Fine Tuning
+        Replaces classifer layer and freezes shallow layers for fine tuning
+        Inputs:
+        filename = path to file containing model weights
+        freeze_layers = number of layers to freeze for training (int, default 0)
+        learning_rate = learning rate (float, default 1e-5)
+        loss = loss function, function or string
+        metrics = training metrics, list of functions or strings
+        Outputs:
+        model = compiled model
+        """
         
+        physical_devices = tf.config.list_physical_devices('GPU')
+        n_gpus=len(physical_devices)
+        # create path for file containing weights
+        if os.path.isfile(filename+'.h5'):
+            mfile = filename+'.h5'
+        elif os.path.isfile(filename+'.hdf5'):
+            mfile = (filename+'.hdf5')
+        else: print("No model weights file found")
+        
+        if loss == 'weighted categorical crossentropy':
+            custom_loss=partial(weighted_crossentropy, weights=class_weights)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = weighted_crossentropy.__module__
+        elif loss == 'DICE BCE':
+            custom_loss=partial(DiceBCELoss,smooth=1e-6)
+            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+            custom_loss.__module__ = DiceBCELoss.__module__
+        else:
+            print('Loss not recognised, using categorical crossentropy')
+            custom_loss='categorical_crossentropy'
+        
+        if n_gpus>1:
+            strategy = tf.distribute.MirroredStrategy(cross_device_ops = tf.distribute.HierarchicalCopyAllReduce())
+            print("Creating model on {} GPUs".format(n_gpus))
+            with strategy.scope():
+                # build and load weights into encoder only model
+                encoder_model = self.build(encoder_only=True)
+                encoder_model.load_weights(mfile)
+                
+                # build full model
+                model = self.build()
+                
+                # transfer weights for all encoder layers, except dense layer
+                for i, layer in enumerate(encoder_model.layers[:-1]):
+                    print('Copying weights from', layer.name, 'to', model.layers[i].name)
+                    weights = layer.get_weights()
+                    model.layers[i].set_weights(weights)
+
+                #Compile model
+                model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+
+        else:
+            # build and load weights into encoder only model
+            encoder_model = self.build(encoder_only=True)
+            encoder_model.load_weights(mfile)
+                
+            # build full model
+            model = self.build()
+                
+            # transfer weights for all encoder layers, except dense layer
+            for i, layer in enumerate(encoder_model.layers[:-1]):
+                print('Copying weights from', layer.name, 'to', model.layers[i].name)
+                weights = layer.get_weights()
+                model.layers[i].set_weights(weights)
+
+            #Compile model
+            model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+
+
+        print('Model Summary')
+        model.summary()
+        return model
         
         
         
