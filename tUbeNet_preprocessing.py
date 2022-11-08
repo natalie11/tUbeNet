@@ -17,10 +17,10 @@ from tUbeNet_classes import DataHeader
 
 # Paramters
 downsample_factor = 1               # factor by which images are downsampled in x and y dimensions 
-pad_array = None	           	    # size images are padded up to, set to None if not padding 
+pad_array = 128 	           	    # size images are padded up to, set to None if not padding 
 
 # Note: these optios only work when labels are defined
-val_fraction = 0                 # fraction of data to use for validation, set 1 0 if not creating a validation set
+val_fraction = 0                     # fraction of data to use for validation, set 1 0 if not creating a validation set
 crop = False                         # crop images if there are large sections of background containing no vessels
 
 """ Paths and filenames """
@@ -31,7 +31,7 @@ label_filename = None
 
 # Output directory
 output_path = "F:/Paired data/Preprocessed_data"
-output_name = "HREM_brain_substack_1-303"
+output_name = "LectinBrain_filter4_padded"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

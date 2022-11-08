@@ -22,11 +22,11 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 200			         	# Number of epoch for training CNN
+n_epochs = 50			         	# Number of epoch for training CNN
 steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
-dataset_weighting = [35,65,0]      # Relative weighting when pulling training data from multiple datasets
+dataset_weighting = [1]      # Relative weighting when pulling training data from multiple datasets
 loss = "weighted categorical crossentropy"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 lr0 = 1e-4                          # Initial learning rate
 class_weights = (1, 7)	        	# if using weighted loss: relative weighting of background to blood vessel classes
@@ -48,12 +48,12 @@ data_path = 'F:/Paired data/Preprocessed_data/headers'
 val_path = None # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired datasets/models/WCE_lr1e4'
-model_filename = '270922_model_checkpoint' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = None# model will be saved under this name
+model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/480img_fine_tune'
+model_filename = 'WCE_lr1e4_fadus480img_finetune' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_path = 'F:/Paired data/Full_Prediction'
+output_path = 'F:/Paired data/fine_tuning/lectinBrain'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -103,7 +103,7 @@ tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attenti
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model = tubenet.load_weights(filename=os.path.join(model_path,model_filename), loss=loss, class_weights=class_weights, learning_rate=lr0, 
-                                 metrics=['accuracy', tube.recall, tube.precision],
+                                 metrics=['accuracy', tube.recall, tube.precision, tube.dice],
                                  freeze_layers=0, fine_tune=fine_tune)
 
 else:

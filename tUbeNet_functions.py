@@ -428,6 +428,7 @@ def predict_segmentation(model=None, data_dir=None,
              
         # break if batch will go outside of range of image
         if (data_dir.image_dims[index][0]-z)<(batch_size*step_size[0]+overlap):
+          print(data_dir.image_dims[index][0]-z)
           break
     			
         for i in range (int(data_dir.image_dims[index][1]/step_size[1])):
@@ -570,17 +571,22 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 			img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
 		img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
         
-	# Seems that the CNN needs 2^n data dimensions (i.e. 64, 128, 256, etc.)
-	# Set the images to 1024x1024 (2^10) arrays
+	# Pad image in x and y axis
+# 	if pad_array is not None:
+# 		print('Padding array')
+# 		xpad=(pad_array-img.shape[1])//2
+# 		ypad=(pad_array-img.shape[2])//2 	
+# 		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
+# 		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
+# 		img=img_pad
+# 		print('Shape of padded image array: {}'.format(img_pad.shape))
 	if pad_array is not None:
 		print('Padding array')
-		xpad=(pad_array-img.shape[1])//2
-		ypad=(pad_array-img.shape[2])//2
-	
-		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
-		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
-		img=img_pad
-		print('Shape of padded image array: {}'.format(img_pad.shape))
+        #Pad bottom of image stack with blank slices to make up to the minimum batch size for running prediciton on full dataset
+		factor=(img.shape[0]//pad_array)+1
+		padding = np.zeros([int((pad_array*factor)-img.shape[0]),img.shape[1], img.shape[2]], dtype='float32')
+		img=np.concatenate((img, padding), axis=0)
+		print('Shape of padded image array: {}'.format(img.shape))
 	
 	#Repeat for labels is present
 	if label_filename is not None:
