@@ -22,7 +22,7 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# Number of epoch for training CNN
+n_epochs = 50			         	# Number of epoch for training CNN
 steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
@@ -47,14 +47,14 @@ data_path = 'F:/Paired datasets/train/headers'
 val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
 
 # Model
-encoder_path = 'F:/Paired datasets/models/encoder_only_100epochs'
-encoder_filename = '041022_model_checkpoint' # filepath for model weights is using an exisiting model, else set to None
-model_path = 'F:/Paired datasets/models/Encoder_decoder_WCE_lr1e4'
-updated_model_filename = 'encoder_decoder_WCE_lr1e4' # model will be saved under this name
-log_dir = 'F:/Paired datasets/models/Encoder_decoder_WCE_lr1e4/logs'
+encoder_path = 'F:/Paired datasets/models/encoder_only_50epochs'
+encoder_filename = 'pretrained_encoder_50epochs' # filepath for model weights is using an exisiting model, else set to None
+model_path = 'F:/Paired datasets/models/2022/encoder_decoder_5050_WCE_lr1e4'
+updated_model_filename = '50encoder_50decoder_WCE_lr1e4' # model will be saved under this name
+log_dir = 'F:/Paired datasets/models/2022/encoder_decoder_5050_WCE_lr1e4/logs'
 
 # Image output
-output_path = 'F:/Paired datasets/models/Encoder_decoder_WCE_lr1e4/Prediction'
+output_path = 'F:/Paired datasets/models/2022/encoder_decoder_5050_WCE_lr1e4/Prediction'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""

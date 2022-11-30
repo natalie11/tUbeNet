@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = 'F:/Paired data/Image_data'
-image_filename = "BrainLectin_filter4(farred)_G8_exp0.9_1-303.tif"
-label_filename = None
+path = 'F:/med_img_decathlon/Task08_HepaticVessel'
+image_filename = "imagesTr/._hepaticvessel_001.nii.gz"
+label_filename = 'labelsTr/._hepaticvessel_001.nii.gz'
 
 # Output directory
-output_path = "F:/Paired data/Preprocessed_data"
-output_name = "LectinBrain_filter4_padded"
+output_path = 'F:/med_img_decathlon/Task08_HepaticVessel/tubenet_testing'
+output_name = "hepaticVessel_1"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

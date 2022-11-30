@@ -12,6 +12,7 @@ import random
 import math
 from functools import partial
 from model import tUbeNet
+import nibabel as nib
 
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model, model_from_json
@@ -547,7 +548,11 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
     """
    # Load image
 	print('Loading images from '+str(image_filename))
-	img=io.imread(image_filename)
+	if image_filename.endswith(('.nii','.nii.gz')):
+	  img=nib.load(image_filename).get_fdata
+	else:
+	  img=io.imread(image_filename)
+    
 
 	if len(img.shape)>3:
 	  print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
