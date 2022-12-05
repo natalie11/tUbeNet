@@ -17,21 +17,21 @@ from tUbeNet_classes import DataHeader
 
 # Paramters
 downsample_factor = 1               # factor by which images are downsampled in x and y dimensions 
-pad_array = 128 	           	    # size images are padded up to, set to None if not padding 
+pad_array = None` 	           	    # size images are padded up to, set to None if not padding 
 
 # Note: these optios only work when labels are defined
-val_fraction = 0                     # fraction of data to use for validation, set 1 0 if not creating a validation set
+val_fraction = 0.25                     # fraction of data to use for validation, set 1 0 if not creating a validation set
 crop = False                         # crop images if there are large sections of background containing no vessels
 
 """ Paths and filenames """
 # Data directory
-path = 'F:/med_img_decathlon/Task08_HepaticVessel'
-image_filename = "imagesTr/._hepaticvessel_001.nii.gz"
-label_filename = 'labelsTr/._hepaticvessel_001.nii.gz'
+path = 'F:/Paired datasets'
+image_filename = "image_data/filtered_dataset_crop.tif"
+label_filename = 'image_labels/filtered_dataset_Labels.tif'
 
 # Output directory
-output_path = 'F:/med_img_decathlon/Task08_HepaticVessel/tubenet_testing'
-output_name = "hepaticVessel_1"
+output_path = 'F:\Paired datasets'
+output_name = "RSOM"
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
