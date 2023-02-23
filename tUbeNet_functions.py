@@ -614,9 +614,11 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		# Pad
 		if pad_array is not None:
 		  print('Padding array')
-		  seg_pad = np.zeros([seg.shape[0],pad_array,pad_array], dtype='float32')
-		  seg_pad[0:seg.shape[0],xpad:seg.shape[1]+xpad,ypad:seg.shape[2]+ypad] = seg
-		  seg=seg_pad
+		  #Pad bottom of image stack with blank slices to make up to the minimum batch size for running prediciton on full dataset
+		  factor=(img.shape[0]//pad_array)+1
+		  padding = np.zeros([int((pad_array*factor)-img.shape[0]),img.shape[1], img.shape[2]], dtype='float32')
+		  img=np.concatenate((img, padding), axis=0)
+		  print('Shape of padded image array: {}'.format(img.shape))
 		
 		# Find the number of unique classes in segmented training set
 		classes = np.unique(seg)

@@ -35,25 +35,25 @@ attention = False
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tune = False                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+fine_tune = True                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
-save_model = False		        	# save model structure and weights? Yes=True, No=False
-prediction_only = True             # if True -> training is skipped
+save_model = True		        	# save model structure and weights? Yes=True, No=False
+prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'F:/Paired data/Preprocessed_data/headers'
+data_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/train/headers'
 
 # Validation data
-val_path = None                     # Set to None is not using validation data
+val_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/test/headers'                   # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/corrosion_fine_tune'
-model_filename = 'WCE_lr1e4_corrosion_fine_tune' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = None # model will be saved under this name
+model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/480img_fine_tune'
+model_filename = 'WCE_lr1e4_fadus480img_finetune' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = 'Yuxin_2Photon_finetune' # model will be saved under this name
 
 # Image output
-output_path = 'F:/Paired data/fine_tuning/test_sws_corrosioncast/overlap30'
+output_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/prediction'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""

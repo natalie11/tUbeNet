@@ -292,12 +292,12 @@ class tUbeNet(tf.keras.Model):
     	                  model = self.build()
     	                  # load weights into new model
     	                  model.load_weights(mfile)
-    	                  model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+    	                  model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
             else:
     	           model = self.build()
     	           # load weights into new model
     	           model.load_weights(mfile)
-    	           model.compile(optimizer=Adam(lr=learning_rate), loss=loss, metrics=metrics)
+    	           model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
 
         print('Model Summary')
         model.summary()
