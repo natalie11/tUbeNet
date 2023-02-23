@@ -26,7 +26,7 @@ n_epochs = 50			         	# Number of epoch for training CNN
 steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 2		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
-dataset_weighting = [1]      # Relative weighting when pulling training data from multiple datasets
+dataset_weighting = [1]             # Relative weighting when pulling training data from multiple datasets
 loss = "weighted categorical crossentropy"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
 lr0 = 1e-4                          # Initial learning rate
 class_weights = (1, 7)	        	# if using weighted loss: relative weighting of background to blood vessel classes
@@ -45,15 +45,15 @@ prediction_only = True             # if True -> training is skipped
 data_path = 'F:/Paired data/Preprocessed_data/headers'
 
 # Validation data
-val_path = None # Set to None is not using validation data
+val_path = None                     # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/480img_fine_tune'
-model_filename = 'WCE_lr1e4_fadus480img_finetune' # filepath for model weights is using an exisiting model, else set to None
+model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/corrosion_fine_tune'
+model_filename = 'WCE_lr1e4_corrosion_fine_tune' # filepath for model weights is using an exisiting model, else set to None
 updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_path = 'F:/Paired data/fine_tuning/lectinBrain'
+output_path = 'F:/Paired data/fine_tuning/test_sws_corrosioncast/overlap30'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -70,7 +70,7 @@ for file in header_filenames: #Iterate through header files
 data_dir = DataDir([], image_dims=[], 
                    image_filenames=[], 
                    label_filenames=[], 
-                   data_type=[])
+                   data_type=[], exclude_region=[])
 
 # Fill directory from headers
 for header in headers:
@@ -81,6 +81,11 @@ for header in headers:
         data_dir.label_filenames.append(header.label_filename+'.npy')
     else: data_dir.label_filenames.append(header.label_filename)
     data_dir.data_type.append('float32')
+    data_dir.exclude_region.append(None)
+    
+""" Manually set excluded region (to reserve for validation)"""
+# This section is under development
+data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
 
 
 """ Create Data Generator """
@@ -143,7 +148,7 @@ if not prediction_only:
         val_dir = DataDir([], image_dims=[], 
                            image_filenames=[], 
                            label_filenames=[], 
-                           data_type=[])
+                           data_type=[], exclude_region=[])
         
         # Fill directory from headers
         for header in headers:
@@ -152,6 +157,11 @@ if not prediction_only:
             val_dir.image_filenames.append(header.image_filename+'.npy')
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
+            val_dir.exclude_region.append(None)
+        
+        """ Manually set excluded region (to reserve for validation)"""
+        # This section is under development
+        val_dir.exclude_region[0]=(None, None, (0,300)) # This exludes the top 300'rows' of pixels that were used for training
         
         vparams = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
@@ -192,7 +202,7 @@ if not prediction_only:
         val_dir = DataDir([], image_dims=[], 
                            image_filenames=[], 
                            label_filenames=[], 
-                           data_type=[])
+                           data_type=[], exclude_region=[])
         
         # Fill directory from headers
         for header in headers:
@@ -201,6 +211,11 @@ if not prediction_only:
             val_dir.image_filenames.append(header.image_filename+'.npy')
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
+            val_dir.exclude_region.append(None)
+                                
+        """ Manually set excluded region (to reserve for validation)"""
+        # This section is under development
+        val_dir.exclude_region[0]=(None, None, (100,300)) # This exludes the top 300'rows' of pixels that were used for training
         
         optimised_thresholds=tube.roc_analysis(model=model, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, 
                                                classes=(0,1), save_prediction=True, prediction_filename=output_path, binary_output=binary_output)
@@ -208,5 +223,5 @@ if not prediction_only:
 else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model=model, data_dir=data_dir,
-                        volume_dims=volume_dims, batch_size=batch_size, overlap=4, classes=(0,1), 
+                        volume_dims=volume_dims, batch_size=batch_size, overlap=31, classes=(0,1), 
                         binary_output=binary_output, save_output= True, path=output_path)

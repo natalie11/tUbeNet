@@ -33,13 +33,14 @@ class DataHeader:
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 class DataDir:
-	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64'):
+	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64', exclude_region=None):
 	    'Initialization'    
 	    self.image_dims = image_dims
 	    self.image_filenames = image_filenames
 	    self.label_filenames = label_filenames
 	    self.list_IDs = list_IDs
 	    self.data_type = data_type
+	    self.exclude_region = exclude_region
 
 class DataGenerator(Sequence):
 	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
@@ -87,6 +88,18 @@ class DataGenerator(Sequence):
 	    self.indexes = np.arange(len(self.data_dir.list_IDs))
 	    if self.shuffle == True:
 		    np.random.shuffle(self.indexes)
+            
+		    
+	def random_coordinates(self, image_dims, exclude_region):
+	    coords=np.zeros(3)
+	    for ax in range(3):
+		    coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]-1))
+		    if exclude_region[ax] is not None:
+	    	     exclude = range(exclude_region[ax][0]-self.volume_dims[ax]-1, exclude_region[ax][1])
+	    	     while coords[ax] in exclude: # if coordinate falls in excluded region, generate new coordinate
+	    	        coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]-1))
+                
+	    return coords
 		    
 	def __data_generation(self, list_IDs_temp):
 	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
@@ -101,10 +114,8 @@ class DataGenerator(Sequence):
 		    while vessels_present==False:
 	    	     # Generate random coordinates within dataset
 	    	     count = count+1
-	    	     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
-	    	     #print('coords_temp: {}'.format(coords_temp)) 
+	    	     coords_temp=self.random_coordinates(self.data_dir.image_dims[index], self.data_dir.exclude_region[index])
+                     
 	    	     # Generate data sub-volume at coordinates, add to batch
 	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
                            image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
@@ -127,9 +138,7 @@ class DataGenerator(Sequence):
 		    while vessels_present==False:
 	    	     # Generate random coordinates within dataset
 	    	     count = count+1
-	    	     coords_temp=np.array([random.randint(0,(self.data_dir.image_dims[index][0]-self.volume_dims[0]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][1]-self.volume_dims[1]-1)),
-                    random.randint(0,(self.data_dir.image_dims[index][2]-self.volume_dims[2]-1))])
+	    	     coords_temp=self.random_coordinates(self.data_dir.image_dims[index], self.data_dir.exclude_region[index])
 	    	     #print('coords_temp: {}'.format(coords_temp)) 
 	    	     # Generate data sub-volume at coordinates, add to batch
 	    	     X[i], y_temp = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],

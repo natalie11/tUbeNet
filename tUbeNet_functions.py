@@ -94,7 +94,7 @@ def load_volume_from_file(volume_dims=(64,64,64), image_dims=None,
     # check for sensible coordinates
     for i in range(3):
       if coords[i]<0 or coords[i]>(image_dims[i]-volume_dims[i]):
-        raise Exception('Coordinates out of range in dimension'+str(i))
+        raise Exception('Coordinates out of range in dimension '+str(i))
   else:
     # generate random coordinates for upper left corner of volume
     coords = np.zeros(3)
@@ -375,6 +375,7 @@ def piecewise_schedule(i, lr0, decay):
 	return lr
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
+  
 
 # Get predicted segmentations (one hot encoded) for an image stack
 def predict_segmentation(model=None, data_dir=None, 
@@ -414,31 +415,36 @@ def predict_segmentation(model=None, data_dir=None,
           raise Exception('overlap cannot be greater than half of the smallest volume dimensions')
       step_size=np.array(volume_dims)
       step_size-=overlap
-            
+      
+      # Calculate number of volumes that will fit into image dimentions
+      k_max = int((data_dir.image_dims[index][0]-volume_dims[0])/seg_pred.shape[0])+1
+      i_max = int(data_dir.image_dims[index][1]/step_size[1])
+      j_max = int(data_dir.image_dims[index][2]/step_size[2])
+      
       # Initialise seg_pred
       seg_pred = np.zeros((int(step_size[0]*batch_size), data_dir.image_dims[index][1], data_dir.image_dims[index][2]))
       
       # Initialise 'overlap_region' variables
-      overlap_region_bottom = np.zeros((int(overlap*batch_size), data_dir.image_dims[index][1], data_dir.image_dims[index][2], n_classes))
-      overlap_region_right = np.zeros((step_size[0]*batch_size, overlap, data_dir.image_dims[index][2], n_classes))
-      overlap_region_back = 1
+      overlap_region_bottom = [None]*j_max
+      for ind in range(j_max): overlap_region_bottom[ind]=[None]*i_max
+      overlap_region_right = [None]*j_max
+      overlap_region_back = []
       
-      for k in range (int((data_dir.image_dims[index][0]-volume_dims[0])/seg_pred.shape[0])+1):
+      for k in range(k_max):
         # find z coordinates for batch
         z = k*batch_size*step_size[0]
-             
         # break if batch will go outside of range of image
         if (data_dir.image_dims[index][0]-z)<(batch_size*step_size[0]+overlap):
           print(data_dir.image_dims[index][0]-z)
           break
     			
-        for i in range (int(data_dir.image_dims[index][1]/step_size[1])):
+        for i in range(i_max):
           x = i*step_size[1] # x coordinate for batch
           # break if batch will go outside of range of image
           if (data_dir.image_dims[index][1]-x)<(step_size[1]+overlap):
             break
     	
-          for j in range (int(data_dir.image_dims[index][2]/step_size[2])):
+          for j in range(j_max):
             y = j*step_size[2] # y coordinate for batch		
             if (data_dir.image_dims[index][2]-y)<(step_size[2]+overlap):
               break
@@ -449,7 +455,7 @@ def predict_segmentation(model=None, data_dir=None,
                 # Load data from file
                 vol[n, 0:volume_dims[0],...] = load_volume_from_file(volume_dims=volume_dims, image_dims=data_dir.image_dims[index],
                                        image_filename=data_dir.image_filenames[index], label_filename=None, 
-                                       coords=(z+n*volume_dims[0],x,y), data_type=data_dir.data_type[index], offset=128) #only take first output						
+                                       coords=(z+n*step_size[0],x,y), data_type=data_dir.data_type[index], offset=128) #only take first output						
     			# predict segmentation using model
             vol_pred_ohe = model.predict(vol,verbose=1) 
             #vol_pred_ohe=vol_pred_ohe[0] #Required if output is a tuple of the prediction array and 
@@ -463,14 +469,12 @@ def predict_segmentation(model=None, data_dir=None,
                 # If this is first iteration in z, average of overlapping region is just overal_region_top
                 if z==0: overlap_region_av = overlap_region_top
                 # Else, load the bottom overlapping region for the previous z coordinate with the same x and y coordinates
-                else: 
-                    if (n-1)<0: overlap_region_av = (overlap_region_top+overlap_region_bottom[(batch_size-1):(batch_size-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2
-                    else: overlap_region_av = (overlap_region_top+overlap_region_bottom[(n-1):(n-1)+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:])/2 
+                else: overlap_region_av = (overlap_region_top+overlap_region_bottom[j][i])/2
                 unique_region = vol_pred_ohe[n,overlap:step_size[0],:,:,:]
                 vol_pred_ohe_av_z[(n)*step_size[0]:(n)*step_size[0]+overlap,:,:,:] = overlap_region_av
                 vol_pred_ohe_av_z[(n)*step_size[0]+overlap:(n+1)*step_size[0],:,:,:] = unique_region
-                overlap_region_bottom[n:n+overlap,x:x+vol_pred_ohe.shape[2],y:y+vol_pred_ohe.shape[3],:] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
-    
+                overlap_region_bottom[j][i] = vol_pred_ohe[n,step_size[0]:step_size[0]+overlap,:,:,:] # Save bottom overlap region for next iteration
+
                 del overlap_region_top, unique_region  
     	          
             del vol_pred_ohe
@@ -483,23 +487,23 @@ def predict_segmentation(model=None, data_dir=None,
             vol_pred_ohe_av_x = np.zeros((vol_pred_ohe_av_z.shape[0],step_size[1],vol_pred_ohe_av_z.shape[2],vol_pred_ohe_av_z.shape[3]))
             overlap_region_left = vol_pred_ohe_av_z[:,0:overlap,:,:]
             if x==0: overlap_region_av = overlap_region_left
-            else: overlap_region_av = (overlap_region_left+overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:])/2
+            else: overlap_region_av = (overlap_region_left+overlap_region_right[j])/2
             unique_region = vol_pred_ohe_av_z[:,overlap:step_size[1],:,:]
             vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
             vol_pred_ohe_av_x[:,overlap:step_size[1],:,:] = unique_region
-            overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:] = vol_pred_ohe_av_z[:,step_size[1]:step_size[1]+overlap,:,:] # Save right overlap region for next iteration
-    
+            overlap_region_right[j]=vol_pred_ohe_av_z[:,step_size[1]:step_size[1]+overlap,:,:]
+           
+            del vol_pred_ohe_av_z, overlap_region_av, unique_region
             # Append right overlap region if this is the last iteration in the x axis
     #        if i+1 >= int(image_stack.shape[1]/step_size[1]):
     #          vol_pred_ohe_av_x = np.append(vol_pred_ohe_av_x,overlap_region_right[:,:,y:y+vol_pred_ohe_av_z.shape[2],:], axis=1)
-    #        del vol_pred_ohe_av_z, overlap_region_av, unique_region
             
-            
+
             #average overlapped region in y axis
             vol_pred_ohe_av_y = np.zeros((vol_pred_ohe_av_x.shape[0], vol_pred_ohe_av_x.shape[1],step_size[2],vol_pred_ohe_av_x.shape[3]))
             overlap_region_front = vol_pred_ohe_av_x[:,:,0:overlap,:]
             if y==0: overlap_region_av = overlap_region_front
-            else: overlap_region_av = (overlap_region_front+overlap_region_back[:,0:60,:,:])/2 
+            else: overlap_region_av = (overlap_region_front+overlap_region_back)/2 
             unique_region = vol_pred_ohe_av_x[:,:,overlap:step_size[2],:]
             vol_pred_ohe_av_y[:,:,0:overlap,:] = overlap_region_av
             vol_pred_ohe_av_y[:,:,overlap:step_size[2],:] = unique_region
