@@ -57,7 +57,7 @@ class DataGenerator(Sequence):
 	    self.classifier = classifier
 	    
 	def __len__(self):
-		'Denotes the number of batches per epoch'
+		'Denotes the max number of batches per epoch'
 		batches=0 
 		for i in range(len(self.data_dir.list_IDs)):
 		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))

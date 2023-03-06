@@ -24,7 +24,7 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
 n_epochs = 50			         	# Number of epoch for training CNN
 steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
-batch_size = 2		 	       	    # Batch size for training CNN
+batch_size = 6		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [1]             # Relative weighting when pulling training data from multiple datasets
 loss = "weighted categorical crossentropy"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
@@ -35,25 +35,25 @@ attention = False
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tune = True                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+fine_tune = False                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
-save_model = True		        	# save model structure and weights? Yes=True, No=False
-prediction_only = False             # if True -> training is skipped
+save_model = False		        	# save model structure and weights? Yes=True, No=False
+prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/train/headers'
+data_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/train/headers/'
 
 # Validation data
-val_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/test/headers'                   # Set to None is not using validation data
+val_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/test/headers/'                  # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/480img_fine_tune'
-model_filename = 'WCE_lr1e4_fadus480img_finetune' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = 'Yuxin_2Photon_finetune' # model will be saved under this name
+model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/'
+model_filename = 'Yuxin_2Photon_finetune' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = None # model will be saved under this name
 
 # Image output
-output_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/prediction'
+output_path = 'F:/Yuxin_olfactoryBlub/Y391_2Photon_Pred_finetuned'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -85,7 +85,7 @@ for header in headers:
     
 """ Manually set excluded region (to reserve for validation)"""
 # This section is under development
-data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
+#data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
 
 
 """ Create Data Generator """
@@ -190,7 +190,7 @@ if not prediction_only:
     # Create directory of validation data
     if val_path is not None:
         # Import data header
-        header_filenames=os.listdir(val_path)
+        header_filenames=os.listdir(val_path)                              
         headers = []
         for file in header_filenames: #Iterate through header files
             file=os.path.join(val_path,file)
@@ -215,7 +215,7 @@ if not prediction_only:
                                 
         """ Manually set excluded region (to reserve for validation)"""
         # This section is under development
-        val_dir.exclude_region[0]=(None, None, (100,300)) # This exludes the top 300'rows' of pixels that were used for training
+        #val_dir.exclude_region[0]=(None, None, (100,300)) # This exludes the top 300'rows' of pixels that were used for training
         
         optimised_thresholds=tube.roc_analysis(model=model, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, 
                                                classes=(0,1), save_prediction=True, prediction_filename=output_path, binary_output=binary_output)
@@ -223,5 +223,5 @@ if not prediction_only:
 else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model=model, data_dir=data_dir,
-                        volume_dims=volume_dims, batch_size=batch_size, overlap=31, classes=(0,1), 
+                        volume_dims=volume_dims, batch_size=batch_size, overlap=24, classes=(0,1), 
                         binary_output=binary_output, save_output= True, path=output_path)
