@@ -1,7 +1,9 @@
 # tUbeNet
-tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was designed to be trained on varied data from different modalities, scales and pathologies, creating a generalisable base model that can be fine-tuned to specific tasks with minimal additional data. 
+tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was designed to be trained on varied data from different modalities, scales and pathologies, creating a generalisable base model that can be fine-tuned to specific tasks with minimal additional data (https://doi.org/10.1101/2023.07.24.550334).
 
-The model weights and the original training data used to produce them are available upon request.
+If you are interested in using tUbeNet for your own data, please get in touch and we will happily share the base model weights - from there you just need to manually annotate a small portion of your data for fine-tuning. The original multi-modal training dataset is also available, along with manual labels, upon request. Contact via email: natalie.holroyd.16@ucl.ac.uk
+
+![github_fig](https://github.com/natalie11/tUbeNet/assets/30265332/49dde486-2e54-41e1-98cc-f83f6f910688)
 
 ## How to use
 
@@ -25,7 +27,7 @@ To use this script you will need to set the following parameters:
 * downsample_factor - factor by which images are downsampled in x and y dimensions, set to 1 if not downsampling
 * pad_array - size images are padded up to, set to None is not padding
 * val_fraction - fraction of data to hold back for validation
-* crop - set to 'True' to crop background containing no labelled vessels, otherwise ‘False’
+* crop - set to 'True' to crop background containing no labelled vessels, otherwise â€˜Falseâ€™
 * path - path to directory containing data to be processed
 * image_filename - filename of image data
 * label_filename - filename of label data, set to None if not using labels
@@ -43,7 +45,7 @@ The parameters to set within script are as follows:
 * batch_size - batch size 
 * class_weights - relative weighting of background to blood vessel classes, to account for imbalanced classes (int, int)
 * n_classes - number of classes (optimised for 2 classes: background and vessel)
-* dataset_weighting – biases the frequency with which the batch generator will pull for each dataset: weight larger datasets more highly to avoid overfitting to small datasets
+* dataset_weighting â€“ biases the frequency with which the batch generator will pull for each dataset: weight larger datasets more highly to avoid overfitting to small datasets
 
 *Run settings*
 * use_saved_model - use saved model structure and weights (True/False)
