@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """tUbeNet 3D 
-Data Preprocessing script: load image data(and labels) and convert into numpy arrays
+Data Preprocessing script: load image data (and optional labels) and convert into numpy arrays with data header
 
 
 Developed by Natalie Holroyd (UCL)
@@ -17,7 +17,7 @@ from tUbeNet_classes import DataHeader
 
 # Paramters
 downsample_factor = 1               # factor by which images are downsampled in x and y dimensions 
-pad_array = 120 	           	    # size images are padded up to, set to None if not padding 
+pad_array = None 	           	    # size images are padded up to, set to None if not padding 
 
 # Note: these optios only work when labels are defined
 val_fraction = 0                     # fraction of data to use for validation, set 1 0 if not creating a validation set
@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = 'F:/Yuxin_olfactoryBlub'
-image_filename = "Y391_2Photon.tif"
+path = '[path to data directory]'
+image_filename = '[data filename]'
 label_filename = None
 
 # Output directory
-output_path = 'F:/Yuxin_olfactoryBlub'
-output_name = "Y391_2Photon_padded"
+output_path = '[path to output folder]'
+output_name = '[output filename]'
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

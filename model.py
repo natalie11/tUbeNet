@@ -22,7 +22,7 @@ import tensorflow_addons as tfa
 # import tensor flow
 import tensorflow as tf
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing AVX AVX2
-# set backend and dim ordering (updated for keras 2.5/ tf 2, keras is now within tensorflow)
+# set backend and dim ordering
 K=tf.keras.backend
 K.set_image_data_format('channels_last')
 

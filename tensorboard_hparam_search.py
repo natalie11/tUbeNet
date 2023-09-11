@@ -4,7 +4,7 @@ Hyperparamter search
 
 Created on Thu Aug 26 14:55:31 2021
 
-@author: Natal
+@author: Natalie (UCL)
 """
 
 #Import libraries

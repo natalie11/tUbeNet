@@ -15,7 +15,6 @@ from model import tUbeNet
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
-#os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = "C:/Users/Natalie/tube-env/Library/plugins"
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
@@ -42,18 +41,18 @@ prediction_only = True             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/train/headers/'
+data_path = '[path to preprocessed data headers folder]'
 
 # Validation data
-val_path = 'F:/Yuxin_olfactoryBlub/fine_tuning/test/headers/'                  # Set to None is not using validation data
+val_path = '[path to preprocessed validation data headers folder (optional)]'  # Set to None is not using validation data
 
 # Model
-model_path = 'F:/Paired data/fine_tuning/models/WCE_lr1e4/'
-model_filename = 'Yuxin_2Photon_finetune' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = None # model will be saved under this name
+model_path = '[path to model folder]'
+model_filename = '[model filename]' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = None # trained model will be saved under this name
 
 # Image output
-output_path = 'F:/Yuxin_olfactoryBlub/Y391_2Photon_Pred_finetuned'
+output_path = '[path to predictions folder]'
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -85,7 +84,7 @@ for header in headers:
     
 """ Manually set excluded region (to reserve for validation)"""
 # This section is under development
-#data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
+# data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
 
 
 """ Create Data Generator """
@@ -126,7 +125,6 @@ if not prediction_only:
         
     #Callbacks
     schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
-    #filepath = os.path.join(model_path,"multimodal_checkpoint")
     checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
@@ -161,7 +159,7 @@ if not prediction_only:
         
         """ Manually set excluded region (to reserve for validation)"""
         # This section is under development
-        val_dir.exclude_region[0]=(None, None, (0,300)) # This exludes the top 300'rows' of pixels that were used for training
+        # val_dir.exclude_region[0]=(None, None, (0,300)) # This exludes the top 300'rows' of pixels that were used for training
         
         vparams = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
@@ -215,7 +213,7 @@ if not prediction_only:
                                 
         """ Manually set excluded region (to reserve for validation)"""
         # This section is under development
-        #val_dir.exclude_region[0]=(None, None, (100,300)) # This exludes the top 300'rows' of pixels that were used for training
+        #val_dir.exclude_region[0]=(None, None, (0,300)) # This exludes the top 300'rows' of pixels that were used for training
         
         optimised_thresholds=tube.roc_analysis(model=model, data_dir=val_dir, volume_dims=volume_dims, batch_size=batch_size, overlap=None, 
                                                classes=(0,1), save_prediction=True, prediction_filename=output_path, binary_output=binary_output)

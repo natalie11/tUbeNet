@@ -1,10 +1,12 @@
 # tUbeNet
-tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images.
+tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was designed to be trained on varied data from different modalities, scales and pathologies, creating a generalisable base model that can be fine-tuned to specific tasks with minimal additional data. 
+
+The model weights and the original training data used to produce them are available upon request.
 
 ## How to use
 
 ### Dependancies
-This code is compatible with python 3.7, Tensorflow 2.1.0 and Keras 2.2.4
+This code is compatible with python 3.7 and Tensorflow 2.3.0
 
 ### Preparing data
 To prepare data you wish to run a prediction on, use the 'tubeNet_preprocessing.py' script. 
@@ -23,25 +25,25 @@ To use this script you will need to set the following parameters:
 * downsample_factor - factor by which images are downsampled in x and y dimensions, set to 1 if not downsampling
 * pad_array - size images are padded up to, set to None is not padding
 * val_fraction - fraction of data to hold back for validation
-* crop - set to 'True' or 'False' to crop background containing no labelled vessels
+* crop - set to 'True' to crop background containing no labelled vessels, otherwise ‘False’
 * path - path to directory containing data to be processed
 * image_filename - filename of image data
 * label_filename - filename of label data, set to None if not using labels
 * output_path - where .npy files will be saved
-* output_name - an identifing name the processed data will be saved under
+* output_name - an identifying name the processed data will be saved under
 
 ### Using the tubenet_multimodal script 
 Once your data has been prepared, you can use the pre-trained model to predict labels using the 'tubenet_multimodal.py' script, fine-tune the model using your own data, or train a new model from scratch.
-The paramters to set within script are as follows:
+The parameters to set within script are as follows:
 
-*Model paramters*
-* volume_dims  - size of subvolume to be passed to CNN (z, x, y) 
+*Model parameters*
+* volume_dims - size of subvolume to be passed to CNN (z, x, y) 
 * n_epochs - number of epochs for training CNN
 * steps_per_epoch - total number of steps (batches of samples) to yield from generator before declaring one epoch finished
 * batch_size - batch size 
 * class_weights - relative weighting of background to blood vessel classes, to account for imbalanced classes (int, int)
-* n_classes - number of classes (optimised for 2 classes)
-* dataset_weighting - weight larger datasets more highly
+* n_classes - number of classes (optimised for 2 classes: background and vessel)
+* dataset_weighting – biases the frequency with which the batch generator will pull for each dataset: weight larger datasets more highly to avoid overfitting to small datasets
 
 *Run settings*
 * use_saved_model - use saved model structure and weights (True/False)
@@ -55,13 +57,13 @@ The paramters to set within script are as follows:
 * val_path - path to directory containing header files for processed validation data (optional, set to None if not using validation data)
 
 * model_path - path to directory containing model (if using saved model), and where trained model will be saved
-* model_filename - filename of exisiting model (not including extension). If not using saved model, set to None
+* model_filename - filename of existing model (not including extension). If not using saved model, set to None
 * updated_model_filename - filename under which the trained model will be saved
 
 * output_path - path were output images will be saved
 
 #### Predicting a segmentation using a pre-trained model
-Ensure the 'prediction_only' and 'use_saved_model' parameters are set to True. Set 'model_path' and 'model_filename' corrosonding to the pre-trained model use wish to use. Set 'path' to point to the directory containing the header files for your pre-processed image data (produced by tubenet_preprocessing.py). 
+Ensure the 'prediction_only' and 'use_saved_model' parameters are set to True. Set 'model_path' and 'model_filename' corresponding to the pre-trained model use wish to use. Set 'path' to point to the directory containing the header files for your pre-processed image data (produced by tubenet_preprocessing.py). 
 
 Run the script and the segmented images will be saved as tifs in 'output_path'.
 

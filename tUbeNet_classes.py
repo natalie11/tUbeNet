@@ -13,8 +13,7 @@ import random
 import pickle
 import os
 join = os.path.join
-#import datetime
-#import json
+
 import io
 from matplotlib import pyplot as plt
 from scipy.ndimage import rotate, zoom
@@ -44,7 +43,7 @@ class DataDir:
 
 class DataGenerator(Sequence):
 	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
-              dataset_weighting=None, augment=False, classifier=False):
+              dataset_weighting=None, augment=False):
 	    'Initialization'
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
@@ -54,7 +53,6 @@ class DataGenerator(Sequence):
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
 	    self.augment = augment
-	    self.classifier = classifier
 	    
 	def __len__(self):
 		'Denotes the max number of batches per epoch'
@@ -72,11 +70,9 @@ class DataGenerator(Sequence):
 		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
 		# Generate data
-		if self.classifier: X, y = self.__data_generation_classifier(list_IDs_temp)
-		else: 
-		    X, y = self.__data_generation(list_IDs_temp)
-		    if self.augment: #classifier data cannot be augmented by current function
-		        self._augmentation(X,y)
+		X, y = self.__data_generation(list_IDs_temp)
+		if self.augment: 
+		    self._augmentation(X,y)
 
 		# Reshape to add depth of 1
 		X = X.reshape(*X.shape, 1)
@@ -124,33 +120,7 @@ class DataGenerator(Sequence):
 	    	        vessels_present=True
                      
 	    return X, to_categorical(y, num_classes=self.n_classes)
-    
-	def __data_generation_classifier(self, list_IDs_temp):
-	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-	    # Initialization
-	    X = np.empty((self.batch_size, *self.volume_dims))
-	    y = np.zeros((self.batch_size))
-	    for i, ID_temp in enumerate(list_IDs_temp):
-		    index=self.data_dir.list_IDs.index(ID_temp)
-                        
-		    vessels_present=False
-		    count=0
-		    while vessels_present==False:
-	    	     # Generate random coordinates within dataset
-	    	     count = count+1
-	    	     coords_temp=self.random_coordinates(self.data_dir.image_dims[index], self.data_dir.exclude_region[index])
-	    	     #print('coords_temp: {}'.format(coords_temp)) 
-	    	     # Generate data sub-volume at coordinates, add to batch
-	    	     X[i], y_temp = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
-                           image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
-                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
-	    	     if (np.count_nonzero(y_temp[...,1])/y_temp[...,1].size)>0.02: #sub-volume must contain at least 2% vessels to be labeled as vessel
-	    	        y[i]=1 #label as containing vessels
-	    	        vessels_present=True
-	    	     elif count>5: vessels_present=True #generate next sample
-	    print("Batch contains {} volumes with vessels".format(np.count_nonzero(y)))             
-	    return X, to_categorical(y, num_classes=self.n_classes)
-    
+       
 	def _augmentation(self, X, y):
 	    # Apply data augmentations to each image/label pair in batch
 	    for i in range(self.batch_size):

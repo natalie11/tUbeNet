@@ -309,7 +309,7 @@ def dice(y_true, y_pred):
     dice = 2*(P*R)/(P+R+K.epsilon())
     return dice
 
-#Tian's metrics, use when y_true/y_pred are np arrays rather than keras tensors
+# Use when y_true/y_pred are np arrays rather than keras tensors
 def precision_logical(y_true, y_pred):
 	#true positive
 	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
