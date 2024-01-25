@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+ # -*- coding: utf-8 -*-
 """tUbeNet 3D 
 Data Preprocessing script: load image data (and optional labels) and convert into numpy arrays with data header
 
@@ -17,9 +17,9 @@ from tUbeNet_classes import DataHeader
 
 # Paramters
 downsample_factor = 1               # factor by which images are downsampled in x and y dimensions 
-pad_array = None 	           	    # size images are padded up to, set to None if not padding 
+pad_array = (None, None, None)      # size images are padded up to (z, x, y), set to None for each dimension if not padding (NB: images should be >64 pixels in each dimension)
 
-# Note: these optios only work when labels are defined
+# Note: these options only work when labels are defined
 val_fraction = 0                     # fraction of data to use for validation, set 1 0 if not creating a validation set
 crop = False                         # crop images if there are large sections of background containing no vessels
 
@@ -27,7 +27,7 @@ crop = False                         # crop images if there are large sections o
 # Data directory
 path = '[path to data directory]'
 image_filename = '[data filename]'
-label_filename = None
+label_filename = '[labels filename (optional)]' # Set to None if not using labels
 
 # Output directory
 output_path = '[path to output folder]'

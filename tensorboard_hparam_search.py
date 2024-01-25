@@ -15,6 +15,7 @@ import random
 
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator
+from model import tUbeNet
 
 from sklearn.metrics import precision_recall_curve, f1_score, make_scorer
 
@@ -27,11 +28,11 @@ from tensorboard.plugins.hparams import api as hp
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 3			         	# number of1 epoch for training CNN
-batch_size = 2		 	       	    # batch size for training CNN
+n_epochs = 5			         	# number of1 epoch for training CNN
+batch_size = 6		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
-dataset_weighting = (4,6,1)
+dataset_weighting = (4,5,1,1)
 
 # Training and prediction options
 binary_output = True	           	# save as binary (True) or softmax (False)
@@ -58,7 +59,7 @@ for file in header_filenames: #Iterate through header files
 data_dir = DataDir([], image_dims=[], 
                    image_filenames=[], 
                    label_filenames=[], 
-                   data_type=[])
+                   data_type=[], exclude_region=[])
 
 # Fill directory from headers
 for header in headers:
@@ -69,6 +70,7 @@ for header in headers:
         data_dir.label_filenames.append(header.label_filename+'.npy')
     else: data_dir.label_filenames.append(header.label_filename)
     data_dir.data_type.append('float32')
+    data_dir.exclude_region.append((None,None,None))
 
 params = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
@@ -91,7 +93,7 @@ for file in header_filenames: #Iterate through header files
 val_dir = DataDir([], image_dims=[], 
                    image_filenames=[], 
                    label_filenames=[], 
-                   data_type=[])
+                   data_type=[], exclude_region=[])
 
 # Fill directory from headers
 for header in headers:
@@ -100,6 +102,7 @@ for header in headers:
     val_dir.image_filenames.append(header.image_filename+'.npy')
     val_dir.label_filenames.append(header.label_filename+'.npy')
     val_dir.data_type.append('float32')
+    data_dir.exclude_region.append((None,None,None))
 
 vparams = {'batch_size': batch_size,
   'volume_dims': volume_dims, 
@@ -137,11 +140,10 @@ with tfs.create_file_writer('logs/hparam_tuning').as_default():
 
         
 def train_test_model(hparams, data_generator, val_generator, callbacks):
-  model = tube.tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
-            learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice], 
-            dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
+  tubenet = tUbeNet(n_classes=2, input_dims=(64,64,64), dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
+  model = tubenet.create(learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice])
   
-  model.fit(data_generator, epochs=100, callbacks=callbacks)
+  model.fit(data_generator, epochs=5, callbacks=callbacks, steps_per_epoch=100)
   _, accuracy, recall, precision, dice = model.evaluate(val_generator)
   return accuracy, recall, precision, dice
 

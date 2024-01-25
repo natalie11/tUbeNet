@@ -89,11 +89,11 @@ class DataGenerator(Sequence):
 	def random_coordinates(self, image_dims, exclude_region):
 	    coords=np.zeros(3)
 	    for ax in range(3):
-		    coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]-1))
+		    coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
 		    if exclude_region[ax] is not None:
-	    	     exclude = range(exclude_region[ax][0]-self.volume_dims[ax]-1, exclude_region[ax][1])
+	    	     exclude = range(exclude_region[ax][0]-self.volume_dims[ax], exclude_region[ax][1])
 	    	     while coords[ax] in exclude: # if coordinate falls in excluded region, generate new coordinate
-	    	        coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]-1))
+	    	        coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
                 
 	    return coords
 		    
@@ -116,7 +116,7 @@ class DataGenerator(Sequence):
 	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
                            image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
                            coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
-	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>5: #sub-volume must contain at least 0.1% vessels
+	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>1: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
                      
 	    return X, to_categorical(y, num_classes=self.n_classes)

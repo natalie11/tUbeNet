@@ -237,7 +237,7 @@ class tUbeNet(tf.keras.Model):
             mfile = filename+'.h5'
         elif os.path.isfile(filename+'.hdf5'):
             mfile = (filename+'.hdf5')
-        else: print("No model weights file found")
+        else: mfile=filename
         
         if loss == 'weighted categorical crossentropy':
             custom_loss=partial(weighted_crossentropy, weights=class_weights)

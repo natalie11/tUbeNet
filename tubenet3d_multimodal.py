@@ -16,6 +16,7 @@ import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 
+
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """Set hard-coded parameters and file paths:"""
 
@@ -26,7 +27,7 @@ steps_per_epoch = 10		        # Number of steps (batches of samples) to yield fr
 batch_size = 6		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = [1]             # Relative weighting when pulling training data from multiple datasets
-loss = "weighted categorical crossentropy"	        	        # "DICE BCE", "focal" or "weighted categorical crossentropy"
+loss = "DICE BCE"	        	    # "DICE BCE", "focal" or "weighted categorical crossentropy"
 lr0 = 1e-4                          # Initial learning rate
 class_weights = (1, 7)	        	# if using weighted loss: relative weighting of background to blood vessel classes
 augment = True       	        	# Augment training data, True/False
@@ -34,10 +35,10 @@ attention = False
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tune = False                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+fine_tune = True                    # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
-save_model = False		        	# save model structure and weights? Yes=True, No=False
-prediction_only = True             # if True -> training is skipped
+save_model = True		        	# save model structure and weights? Yes=True, No=False
+prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
@@ -48,11 +49,11 @@ val_path = '[path to preprocessed validation data headers folder (optional)]'  #
 
 # Model
 model_path = '[path to model folder]'
-model_filename = '[model filename]' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = None # trained model will be saved under this name
+model_filename =  '[model filename]'  # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = '[updated model filename]' # trained model will be saved under this name
 
 # Image output
-output_path = '[path to predictions folder]'
+output_path = '[path to predictions folder]' # predicted segmentations will be saved here
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -80,11 +81,11 @@ for header in headers:
         data_dir.label_filenames.append(header.label_filename+'.npy')
     else: data_dir.label_filenames.append(header.label_filename)
     data_dir.data_type.append('float32')
-    data_dir.exclude_region.append(None)
+    data_dir.exclude_region.append((None,None,None)) #region to be left out of training for use as validation data (under development)
     
 """ Manually set excluded region (to reserve for validation)"""
 # This section is under development
-# data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200'rows' of pixels from the training set
+# data_dir.exclude_region[0]=(None, None, (300,500)) # This exludes the bottom 200 'rows' of pixels from the training set
 
 
 """ Create Data Generator """
@@ -106,7 +107,7 @@ tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attenti
 
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model = tubenet.load_weights(filename=os.path.join(model_path,model_filename), loss=loss, class_weights=class_weights, learning_rate=lr0, 
+       model = tubenet.load_weights(filename=os.path.join(model_path,model_filename), loss=loss, class_weights=class_weights, learning_rate=lr0, 
                                  metrics=['accuracy', tube.recall, tube.precision, tube.dice],
                                  freeze_layers=0, fine_tune=fine_tune)
 
@@ -115,7 +116,7 @@ else:
                            metrics=['accuracy', tube.recall, tube.precision, tube.dice])
 
 """ Train and save model """
-if not prediction_only:
+if not prediction_only and header.label_filename is not None:
     #Log files
     date = datetime.datetime.now()
     filepath = os.path.join(model_path,"{}_model_checkpoint.h5".format(date.strftime("%d%m%y")))
@@ -155,12 +156,13 @@ if not prediction_only:
             val_dir.image_filenames.append(header.image_filename+'.npy')
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
-            val_dir.exclude_region.append(None)
+            val_dir.exclude_region.append((None,None,None))
         
+
         """ Manually set excluded region (to reserve for validation)"""
         # This section is under development
         # val_dir.exclude_region[0]=(None, None, (0,300)) # This exludes the top 300'rows' of pixels that were used for training
-        
+
         vparams = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
@@ -209,7 +211,7 @@ if not prediction_only:
             val_dir.image_filenames.append(header.image_filename+'.npy')
             val_dir.label_filenames.append(header.label_filename+'.npy')
             val_dir.data_type.append('float32')
-            val_dir.exclude_region.append(None)
+            val_dir.exclude_region.append((None,None,None))
                                 
         """ Manually set excluded region (to reserve for validation)"""
         # This section is under development
@@ -221,5 +223,5 @@ if not prediction_only:
 else:
     """Predict segmentation only - non training"""
     tube.predict_segmentation(model=model, data_dir=data_dir,
-                        volume_dims=volume_dims, batch_size=batch_size, overlap=24, classes=(0,1), 
+                        volume_dims=volume_dims, batch_size=batch_size, overlap=24, classes=list(range(n_classes)), 
                         binary_output=binary_output, save_output= True, path=output_path)

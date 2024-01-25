@@ -585,21 +585,15 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 			img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
 		img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
         
-	# Pad image in x and y axis
-# 	if pad_array is not None:
-# 		print('Padding array')
-# 		xpad=(pad_array-img.shape[1])//2
-# 		ypad=(pad_array-img.shape[2])//2 	
-# 		img_pad = np.zeros([img.shape[0],pad_array,pad_array], dtype='float32')
-# 		img_pad[0:img.shape[0],xpad:img.shape[1]+xpad,ypad:img.shape[2]+ypad] = img
-# 		img=img_pad
-# 		print('Shape of padded image array: {}'.format(img_pad.shape))
-	if pad_array is not None:
-		print('Padding array')
-        #Pad bottom of image stack with blank slices to make up to the minimum batch size for running prediciton on full dataset
-		factor=(img.shape[0]//pad_array)+1
-		padding = np.zeros([int((pad_array*factor)-img.shape[0]),img.shape[1], img.shape[2]], dtype='float32')
-		img=np.concatenate((img, padding), axis=0)
+
+	if any(pad is not None for pad in pad_array):
+		print('Padding image array')
+		pad_array = np.array(pad_array) #convert to np array
+		pad_array[pad_array==None] = np.array(img.shape)[pad_array==None] # Replace any 'None' with image dimensions
+		img_padded = np.zeros(pad_array)
+		img_padded[:img.shape[0],:img.shape[1],:img.shape[2]]=img
+		img = img_padded
+		del img_padded
 		print('Shape of padded image array: {}'.format(img.shape))
 	
 	#Repeat for labels is present
@@ -617,13 +611,13 @@ def data_preprocessing(image_filename=None, label_filename=None, downsample_fact
 		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
 		
 		# Pad
-		if pad_array is not None:
-		  print('Padding array')
-		  #Pad bottom of image stack with blank slices to make up to the minimum batch size for running prediciton on full dataset
-		  factor=(img.shape[0]//pad_array)+1
-		  padding = np.zeros([int((pad_array*factor)-img.shape[0]),img.shape[1], img.shape[2]], dtype='float32')
-		  img=np.concatenate((img, padding), axis=0)
-		  print('Shape of padded image array: {}'.format(img.shape))
+		if any(pad is not None for pad in pad_array):
+		  print('Padding labels array')
+		  seg_padded = np.zeros(pad_array)
+		  seg_padded[:seg.shape[0],:seg.shape[1],:seg.shape[2]]=seg
+		  seg = seg_padded
+		  del seg_padded
+		  print('Shape of padded labels array: {}'.format(seg.shape))
 		
 		# Find the number of unique classes in segmented training set
 		classes = np.unique(seg)
