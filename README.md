@@ -8,7 +8,7 @@ If you are interested in using tUbeNet for your own data, please get in touch an
 ## How to use
 
 ### Dependancies
-This code is compatible with python 3.7 and Tensorflow 2.3.0
+This code is compatible with python 3.8 and Tensorflow 2.3.0
 
 ### Preparing data
 To prepare data you wish to run a prediction on, use the 'tubeNet_preprocessing.py' script. 
@@ -25,7 +25,7 @@ This script will:
 
 To use this script you will need to set the following parameters:
 * downsample_factor - factor by which images are downsampled in x and y dimensions, set to 1 if not downsampling
-* pad_array - size images are padded up to, set to None is not padding
+* pad_array - size images are padded up to in each dimension (z, x, y), set to None if not padding
 * val_fraction - fraction of data to hold back for validation
 * crop - set to 'True' to crop background containing no labelled vessels, otherwise ‘False’
 * path - path to directory containing data to be processed
