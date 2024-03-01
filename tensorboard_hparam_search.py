@@ -28,7 +28,6 @@ from tensorboard.plugins.hparams import api as hp
 
 # Paramters
 volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 5			         	# number of1 epoch for training CNN
 batch_size = 6		 	       	    # batch size for training CNN
 class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
 n_classes=2
@@ -102,12 +101,12 @@ for header in headers:
     val_dir.image_filenames.append(header.image_filename+'.npy')
     val_dir.label_filenames.append(header.label_filename+'.npy')
     val_dir.data_type.append('float32')
-    data_dir.exclude_region.append((None,None,None))
+    val_dir.exclude_region.append((None,None,None))
 
 vparams = {'batch_size': batch_size,
   'volume_dims': volume_dims, 
   'n_classes': n_classes,
-  'dataset_weighting': dataset_weighting,
+  'dataset_weighting':  None,
 	       'shuffle': False}
 
 val_generator=DataGenerator(val_dir, **vparams)
@@ -143,8 +142,8 @@ def train_test_model(hparams, data_generator, val_generator, callbacks):
   tubenet = tUbeNet(n_classes=2, input_dims=(64,64,64), dropout=hparams[HP_DROPOUT], alpha=hparams[HP_ALPHA])
   model = tubenet.create(learning_rate=hparams[HP_LR], loss=hparams[HP_LOSS], metrics=['accuracy', tube.recall, tube.precision, tube.dice])
   
-  model.fit(data_generator, epochs=5, callbacks=callbacks, steps_per_epoch=100)
-  _, accuracy, recall, precision, dice = model.evaluate(val_generator)
+  model.fit(data_generator, epochs=10, callbacks=callbacks, steps_per_epoch=30)
+  _, accuracy, recall, precision, dice = model.evaluate(val_generator,steps=30)
   return accuracy, recall, precision, dice
 
 def run(run_dir, hparams, data_generator, val_generator):
@@ -160,7 +159,7 @@ def run(run_dir, hparams, data_generator, val_generator):
 """ Conduct search """        
 session_num = 0
 
-for session_num in range(10):
+for session_num in range(15):
     
     lr = random.choice(HP_LR.domain.values)
     dropout = random.choice(HP_DROPOUT.domain.values)

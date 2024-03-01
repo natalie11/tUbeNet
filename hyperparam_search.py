@@ -15,15 +15,61 @@ import numpy as np
 #import datetime
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator#, ImageDisplayCallback, MetricDisplayCallback
-#from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
-from keras.wrappers.scikit_learn import KerasClassifier
-from sklearn.model_selection import RandomizedSearchCV #RepeatedStratifiedKFold
-from sklearn.metrics import precision_recall_curve, f1_score, make_scorer
+import keras_tuner
+from keras import metrics
 #----------------------------------------------------------------------------------------------------------------------------------------------
+class Dice(metrics.Metric):
+
+  def __init__(self, name='dice', **kwargs):
+    super().__init__(name=name, **kwargs)
+    self.recall = self.add_weight(name='recall', initializer='zeros')
+    self.precision = self.add_weight(name='precision', initializer='zeros')
+    self.score = self.add_weight(name='score', initializer='zeros')
+
+  def update_state(self, y_true, y_pred, sample_weight=None):
+    y_true = ops.cast(y_true, "bool")
+    y_pred = ops.cast(y_pred, "bool")
+    
+    recall_values=recall_logical(y_true, y_pred)
+    precision_values=precision_logical(y_true, y_pred)
+    dice_values = np.divide(np.multiply(2,np.multiply(precision_values,recall_values)),np.add(precision_values,recall_values))
+
+    # TP = ops.sum(ops.logical_and(ops.equal(y_true,1),ops.equal(y_pred,1)))
+    # FP = ops.sum(ops.logical_and(ops.equal(y_true,0),ops.equal(y_pred,1)))
+    # FN = ops.sum(ops.logical_and(ops.equal(y_true,1),ops.equal(y_pred,0)))
+    # recall_values = ops.divide(TP,ops.add(TP,FN))
+    # precision_values = ops.divide(TP,ops.add(TP,FP))
+    # dice_values = ops.divide(ops.multiply(2,ops.multiply(precision_values,recall_values)),ops.add(precision_values,recall_values))
+    
+    recall_values = ops.cast(recall_values, self.dtype)
+    precision_values = ops.cast(precision_values, self.dtype)
+    dice_values = ops.cast(dice_values, self.dtype)
+
+    self.recall.assign_add(ops.sum(recall_values))
+    self.precision.assign_add(ops.sum(precision_values))
+    self.score.assign_add(ops.sum(dice_values))
+
+  def result(self):
+    return self.score
+
+  def reset_states(self):
+    self.true_positives.assign(0)
+    self.recall.assign(0)
+    self.precision.assign(0)
+    self.score.assign(0)
+
 def create_model(lr=0.01, alpha=0.2, dropout = 0.25, loss=None):
-    model = tube.tUbeNet(n_classes=2, input_height=64, input_width=64, input_depth=64,
-            learning_rate=lr, loss=loss, metrics=['accuracy', tube.recall, tube.precision, tube.dice], 
-            dropout=dropout, alpha=alpha)
+    tubenet = tUbeNet(n_classes=2, input_dims=(64,64,64), dropout=dropout, alpha=alpha)
+    model = tubenet.create(learning_rate=lr, loss=loss, metrics=['accuracy', tube.recall, tube.precision, Dice()])
+    return model
+
+def build_with_tuner(hp):
+    dropout = hp.Choice("dropout", [0.0,0.1,0.2,0.4])
+    alpha = hp.Choice("alpha", [0.0,0.1,0.2,0.4])
+    lr = hp.Float("lr", min_value=1e-4, max_value=1e-2, sampling="log")
+    loss = hp.Choice("loss",['DICE BCE', 'weighted categorical crossentropy'])
+    # call existing model-building code with the hyperparameter values.
+    create_model(lr=lr, alpha=alpha, dropout=dropout, loss=loss)
     return model
 
 if __name__ == '__main__':
@@ -32,12 +78,12 @@ if __name__ == '__main__':
     
     # Paramters
     volume_dims = (64,64,64)    	 	# size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-    n_epochs = 100			         	# number of1 epoch for training CNN
-    steps_per_epoch = 100		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
-    batch_size = 2		 	       	    # batch size for training CNN
+    n_epochs = 10			         	# number of1 epoch for training CNN
+    steps_per_epoch = 30		        # total number of steps (batches of samples) to yield from generator before declaring one epoch finished
+    batch_size = 6		 	       	    # batch size for training CNN
     class_weights = (1,7) 	        	# relative weighting of background to blood vessel classes
     n_classes=2
-    dataset_weighting = (30,60,10)
+    dataset_weighting = (4,5,1,1)
     
     # Training and prediction options
     binary_output = True	           	# save as binary (True) or softmax (False)
@@ -49,7 +95,7 @@ if __name__ == '__main__':
     data_path = 'F:/Paired datasets/train/headers'
     
     # Validation data
-    #val_path = None # Set to None is not using validation data
+    val_path = 'F:/Paired datasets/test/headers' # Set to None is not using validation data
     
     # Model
     #model_path = 'F:/Paired datasets/models/sws'
@@ -73,7 +119,7 @@ if __name__ == '__main__':
     data_dir = DataDir([], image_dims=[], 
                        image_filenames=[], 
                        label_filenames=[], 
-                       data_type=[])
+                       data_type=[], exclude_region=[])
     
     # Fill directory from headers
     for header in headers:
@@ -84,9 +130,8 @@ if __name__ == '__main__':
             data_dir.label_filenames.append(header.label_filename+'.npy')
         else: data_dir.label_filenames.append(header.label_filename)
         data_dir.data_type.append('float32')
+        data_dir.exclude_region.append((None,None,None))
     
-    
-    """ Create Data Generator """
     params = {'batch_size': batch_size,
               'volume_dims': volume_dims, 
               'n_classes': n_classes,
@@ -95,37 +140,59 @@ if __name__ == '__main__':
     
     data_generator=DataGenerator(data_dir, **params)
     
+    # Import vaildation data header
+    header_filenames=os.listdir(val_path)
+    headers = []
+    for file in header_filenames: #Iterate through header files
+        file=os.path.join(val_path,file)
+        with open(file, "rb") as f:
+            data_header = pickle.load(f) # Unpickle DataHeader object
+        headers.append(data_header) # Add to list of headers
+        
+    # Create empty data directory    
+    val_dir = DataDir([], image_dims=[], 
+                       image_filenames=[], 
+                       label_filenames=[], 
+                       data_type=[], exclude_region=[])
     
-    """ Build Model """
-    # create partial for  to pass to complier
-    custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-    custom_loss.__name__ = "custom_loss" #partial doesn't copy name or module attribute from function
-    custom_loss.__module__ = tube.weighted_crossentropy.__module__            
+    # Fill directory from headers
+    for header in headers:
+        val_dir.list_IDs.append(header.ID)
+        val_dir.image_dims.append(header.image_dims)
+        val_dir.image_filenames.append(header.image_filename+'.npy')
+        val_dir.label_filenames.append(header.label_filename+'.npy')
+        val_dir.data_type.append('float32')
+        val_dir.exclude_region.append((None,None,None))
     
-    model = KerasClassifier(build_fn=create_model, epochs=100, batch_size=2)
+    vparams = {'batch_size': batch_size,
+      'volume_dims': volume_dims, 
+      'n_classes': n_classes,
+      'dataset_weighting': None,
+    	       'shuffle': False}
+    
+    val_generator=DataGenerator(val_dir, **vparams)
+
     
     """ Conduct search """        
-    # Define K-fold cross validation
-    #cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+    tuner = keras_tuner.RandomSearch(
+            hypermodel=build_with_tuner,
+            objective="dice",
+            max_trials=10,
+            executions_per_trial=2,
+            overwrite=True,
+            directory='C:/Users/Natalie/Documents/GitHub/tUbeNet/logs/keras_tuner',
+            project_name="tubenet_hparams",
+            )
     
-    # Define search space
-    space = dict()
-    space['lr'] = [0.0001, 0.001, 0.01]
-    space['alpha'] = [0.1, 0.2, 0.4]
-    space['dropout']=[0.1,0.2,0.4]
-    space['loss']=[custom_loss, 'catagorical_crossentropy']
-    #optimizer = ['SGD', 'RMSprop', 'Adagrad', 'Adam', 'Nadam']
-    #param_grid = dict(optimizer=optimizer)
+    tuner.search_space_summary()
     
-    f1=make_scorer(f1_score)
-    search = RandomizedSearchCV(estimator=model, n_iter=5, param_distributions=space, n_jobs=-2, cv=3, scoring=f1, verbose=10)
-    result = search.fit(data_generator)
+    tuner.search(data_generator, steps_per_epoch=30, epochs=10, validation_data=val_generator, validation_steps=30)
     
     
     """ Results """
-    print("Best: %f using %s" % (result.best_score_, result.best_params_))
-    means = result.cv_results_['mean_test_score']
-    stds = result.cv_results_['std_test_score']
-    params = result.cv_results_['params']
-    for mean, stdev, param in zip(means, stds, params):
-        print("%f (%f) with: %r" % (mean, stdev, param))
+    tuner.results_summary()
+    
+    best_model = tuner.get_best_models(num_models=1)
+    best_model.summary
+    
+

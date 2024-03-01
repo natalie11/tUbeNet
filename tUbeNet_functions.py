@@ -49,7 +49,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from skimage import io
 from skimage.measure import block_reduce
-from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve, average_precision_score, PrecisionRecallDisplay
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -648,6 +648,9 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
     optimal_thresholds = []
     recall = []
     precision = []
+    pr_optimal_thresholds = []
+    pr_recall = []
+    pr_precision = []
     volume_dims_temp=list(volume_dims)#convert from tuple to list for easier re-assignment of elements
     
     for index in range(0,len(data_dir.list_IDs)):
@@ -712,30 +715,30 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
                         y_test_all[z:z+y_test.shape[1], x:x+y_test.shape[2], y+(n*volume_dims[2]):y+(n*volume_dims[2])+y_test.shape[3]]=y_test[n,...]
         
               
-        # calculate false/true positive rates and area under curve
+        # ROC Curve and area under curve
         fpr, tpr, thresholds = roc_curve(np.ravel(y_test_all), np.ravel(y_pred_all))
         area_under_curve = auc(fpr, tpr)
-        optimal_idx = np.argmax(tpr - fpr)
-        print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
+        optimal_idx = np.argmax(tpr - fpr) #calculate Youden's J statistic to find optimal threshold
+        print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
         optimal_thresholds.append(thresholds[optimal_idx])
         print('Recall at optimal threshold: {}'.format(tpr[optimal_idx]))
         recall.append(tpr[optimal_idx])
         print('Precision at optimal threshold: {}'.format(1-fpr[optimal_idx]))
         precision.append(1-fpr[optimal_idx])
         
-        if binary_output:
-            binary_pred = np.zeros(y_pred_all.shape)
-            binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
-            y_pred_all = binary_pred
+        # if binary_output:
+        #     binary_pred = np.zeros(y_pred_all.shape)
+        #     binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
+        #     y_pred_all = binary_pred
         
-        # Save predicted segmentation      
-        if save_prediction:
-            # threshold using optimal threshold
-            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
-            for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
-                save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
-            print('Predicted segmentation saved to {}'.format(prediction_filename))
+        # # Save predicted segmentation      
+        # if save_prediction:
+        #     # threshold using optimal threshold
+        #     #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+        #     for im in range(y_pred_all.shape[0]):
+        #         save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
+        #         save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
+        #     print('Predicted segmentation saved to {}'.format(prediction_filename))
                 
         # Plot ROC 
         fig = plt.figure()
@@ -750,5 +753,32 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.legend(loc="lower right")
         plt.show()
         fig.savefig(os.path.join(prediction_filename,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
+        
+        # Precision-Recall Curve
+        fig, ax = plt.subplots()
+        disp = PrecisionRecallDisplay.from_predictions(np.ravel(y_test_all), np.ravel(y_pred_all), 
+                                                       name='PR Curve', ax=ax, pos_label=1)
+        ax.set_title("Precision-Recall Curve for "+str(data_dir.list_IDs[index])) 
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
+        plt.show()
+        fig.savefig(os.path.join(prediction_filename,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
+        print('Average Precision Score: {}'.format(average_precision_score(np.ravel(y_test_all), np.ravel(y_pred_all))))
+
+        
+        if binary_output:
+            binary_pred = np.zeros(y_pred_all.shape)
+            binary_pred[y_pred_all>=pr_thresholds[optimal_idx]] = 1
+            y_pred_all = binary_pred
+        
+        # Save predicted segmentation      
+        if save_prediction:
+            # threshold using optimal threshold
+            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
+            for im in range(y_pred_all.shape[0]):
+                save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
+                save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
+            print('Predicted segmentation saved to {}'.format(prediction_filename))
+
 
     return optimal_thresholds, recall, precision
