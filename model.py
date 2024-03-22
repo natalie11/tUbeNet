@@ -81,7 +81,7 @@ class AttnBlock(tf.keras.layers.Layer):
 		return attn_map*query
     
 class EncodeBlock(tf.keras.layers.Layer):
-	def __init__(self, channels=32, alpha=0.2, dropout=0.25):
+	def __init__(self, channels=32, alpha=0.2, dropout=0.3):
 		super(EncodeBlock,self).__init__()
 		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.conv2 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
@@ -151,7 +151,7 @@ class EncoderOnlyOutput(tf.keras.layers.Layer):
 		return dense2
 
 class tUbeNet(tf.keras.Model):   
-    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.25, alpha=0.2, attention=False):
+    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.3, alpha=0.2, attention=False):
         super(tUbeNet,self).__init__()
         self.n_classes=n_classes
         self.input_dims=input_dims
