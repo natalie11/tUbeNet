@@ -9,7 +9,8 @@ If you are interested in using tUbeNet for your own data, please get in touch an
 
 ### Dependancies
 This code is uses python 3.8 and Tensorflow 2.3.0.
-Note for GPU users: You will need Cuda 10.1 and cudnn 7.6 for this version of tensorflow (see Tested build congifurations: https://www.tensorflow.org/install/source#gpu). Newer Ampere GPU Architecture are not compatible with this older Cuda version (see https://docs.nvidia.com/cuda/ampere-compatibility-guide/index.html). Tensorflow 2.3.0 does not support GPU on Windows
+
+Note for GPU users: You will need Cuda 10.1 and cudnn 7.6 for this version of tensorflow (see Tested build configurations: https://www.tensorflow.org/install/source#gpu). GPUs with the Ampere GPU Architecture are not compatible with this older Cuda version (see https://docs.nvidia.com/cuda/ampere-compatibility-guide/index.html). Tensorflow 2.3.0 does not support GPU on Windows
 
 ### Preparing data
 To prepare data you wish to run a prediction on, use the 'tubeNet_preprocessing.py' script. 
