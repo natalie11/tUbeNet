@@ -65,7 +65,7 @@ class DataGenerator(Sequence):
 	def __getitem__(self, index):
 		'Generate one batch of data'
 		# random.choices only available in python 3.6
-		# randomly generate list of ID for batch, weighted according to given 'dataset_weighting' if not None
+		# randomly generate list of IDs for batch, weighted according to given 'dataset_weighting' if not None
 		if len(self.data_dir.list_IDs)>2:
 		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
 		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
@@ -104,7 +104,10 @@ class DataGenerator(Sequence):
 	    y = np.empty((self.batch_size, *self.volume_dims))
 	    for i, ID_temp in enumerate(list_IDs_temp):
 		    index=self.data_dir.list_IDs.index(ID_temp)
-                        
+            
+            # Check offset of the .npy binary file (i.e. bytes before start of array data)
+            offset=np.load(self.data_dir.image_filename[index], mmap_mode='r').offset
+            
 		    vessels_present=False
 		    count=0
 		    while vessels_present==False:
@@ -115,7 +118,7 @@ class DataGenerator(Sequence):
 	    	     # Generate data sub-volume at coordinates, add to batch
 	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
                            image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
-                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=128)	
+                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=offset)	
 	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>1: #sub-volume must contain at least 0.1% vessels
 	    	        vessels_present=True
                      
