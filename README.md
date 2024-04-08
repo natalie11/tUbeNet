@@ -1,7 +1,9 @@
 # tUbeNet
-tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was designed to be trained on varied data from different modalities, scales and pathologies, creating a generalisable base model that can be fine-tuned to specific tasks with minimal additional data (https://doi.org/10.1101/2023.07.24.550334).
+tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was trained on varied data from different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training (https://doi.org/10.1101/2023.07.24.550334).
 
-If you are interested in using tUbeNet for your own data, please get in touch and we will happily share the base model weights - from there you just need to manually annotate a small portion of your data for fine-tuning. The original multi-modal training dataset is also available, along with manual labels, upon request. Contact via email: natalie.holroyd.16@ucl.ac.uk
+To use this model on your own data, download the model weights here: https://doi.org/10.5522/04/25498603.v1
+To fine-tune the model you your own data, just manually annotate a small portion of your image (the amount needed will vary between datasets) and follow the instructions below. 
+For troubleshooting, tips, or a copy of the original training/test data, please reach out via email: natalie.holroyd.16@ucl.ac.uk
 
 ![github_fig](https://github.com/natalie11/tUbeNet/assets/30265332/49dde486-2e54-41e1-98cc-f83f6f910688)
 
