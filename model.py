@@ -14,10 +14,10 @@ from tensorflow.keras.models import Model, model_from_json
 # CNN layers
 from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout, Dense, Flatten
 # utilities
-from tensorflow.keras.utils import multi_gpu_model #np_utils
+#from tensorflow.keras.utils import multi_gpu_model #np_utils
 # opimiser
 from tensorflow.keras.optimizers import Adam
-import tensorflow_addons as tfa
+#import tensorflow_addons as tfa
 
 # import tensor flow
 import tensorflow as tf
@@ -85,7 +85,8 @@ class EncodeBlock(tf.keras.layers.Layer):
 		super(EncodeBlock,self).__init__()
 		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.conv2 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
-		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		#self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		self.norm = tf.keras.layers.GroupNormalization(groups=int(channels/4), axis=4)
 		self.lrelu = LeakyReLU(alpha=alpha)
 		self.pool = MaxPooling3D(pool_size=(2, 2, 2))
 		self.dropout = Dropout(dropout)
@@ -105,7 +106,8 @@ class DecodeBlock(tf.keras.layers.Layer):
 		super(DecodeBlock,self).__init__()
 		self.transpose = Conv3DTranspose(channels, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')
 		self.conv = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
-		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		#self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		self.norm = tf.keras.layers.GroupNormalization(groups=int(channels/4), axis=4)
 		self.lrelu = LeakyReLU(alpha=alpha)
 		self.channels = channels
 	def call (self, skip, x, attention=False):
@@ -126,7 +128,8 @@ class UBlock(tf.keras.layers.Layer):
 		super(UBlock,self).__init__()     
 		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.conv2 = Conv3D(int(channels/2), (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
-		self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		#self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
+		self.norm = tf.keras.layers.GroupNormalization(groups=int(channels/4), axis=4)
 		self.lrelu = LeakyReLU(alpha=alpha)
 	def call (self, x):
 		conv1 = self.conv1(x)
@@ -195,9 +198,9 @@ class tUbeNet(tf.keras.Model):
             custom_loss=partial(DiceBCELoss,smooth=1e-6)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = DiceBCELoss.__module__
-        elif loss == 'focal':
-            custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.2, gamma=5)
-            #ref https://arxiv.org/pdf/1708.02002.pdf
+        #elif loss == 'focal':
+        #    custom_loss=tfa.losses.SigmoidFocalCrossEntropy(alpha=0.2, gamma=5)
+        #    #ref https://arxiv.org/pdf/1708.02002.pdf
         else:
             print('Loss not recognised, using categorical crossentropy')
             custom_loss='categorical_crossentropy'
