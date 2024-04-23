@@ -108,7 +108,7 @@ def main(
     if not prediction_only and header.label_filename is not None:
         #Log files
         date = datetime.datetime.now()
-        filepath = os.path.join(model_path,"{}_model_checkpoint.h5".format(date.strftime("%d%m%y")))
+        filepath = os.path.join(model_path,"{}_model_checkpoint.weights.h5".format(date.strftime("%d%m%y")))
         log_dir = os.path.join(model_path,'logs')
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -219,6 +219,7 @@ if __name__=='__main__':
 
     """
     python -m pdb tubenet3d_multimodal.py --data_path "/home/simon/Dropbox (UCL)/vamp/tubenet/train/headers" --output_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output" --val_path "/home/simon/Dropbox (UCL)/vamp/tubenet/test/headers" --model_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model"
+    tensorboard --logdir "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model"
     """
 
     parser = argparse.ArgumentParser(description="tUbeNet training/prediction")
@@ -235,10 +236,10 @@ if __name__=='__main__':
     parser.add_argument('--augment', action='store_false',help='Augment training data, True/False')
     parser.add_argument('--attention', action='store_true',help='Use attention (not yet implemented!)')
     parser.add_argument('--use_saved_model', action='store_true',help='use previously saved model structure and weights? Yes=True, No=False')
-    parser.add_argument('--fine_tune', action='store_false',help='prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False')
-    parser.add_argument('--binary_output', action='store_true',help='save as binary (True) or softmax (False)')
+    parser.add_argument('--fine_tune', action='store_true',help='prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False')
+    parser.add_argument('--binary_output', action='store_false',help='save as binary (True) or softmax (False)')
     parser.add_argument('--save_model', action='store_false',help='save model structure and weights? Yes=True, No=False')
-    parser.add_argument('--prediction_only', action='store_false',help='if True -> training is skipped')
+    parser.add_argument('--prediction_only', action='store_true',help='if True -> training is skipped')
     
     parser.add_argument('--data_path', default='',type=str,help='Path to preprocessed data headers folder')
     parser.add_argument('--val_path', default='',type=str,help='Path to preprocessed validation data headers folder (optional)')
