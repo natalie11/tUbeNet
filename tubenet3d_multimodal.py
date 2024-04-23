@@ -162,12 +162,12 @@ def main(
             val_generator=DataGenerator(val_dir, **vparams)
             
             # TRAIN with validation
-            history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=4, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+            history=model.fit(data_generator, validation_data=val_generator, validation_steps=4, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                         callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
 
         else:
             # TRAIN without validation
-            history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+            history=model.fit(data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
                                         callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
        
         # SAVE MODEL

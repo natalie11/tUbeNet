@@ -106,7 +106,7 @@ class DataGenerator(Sequence):
             index=self.data_dir.list_IDs.index(ID_temp)
 
             # Check offset of the .npy binary file (i.e. bytes before start of array data)
-            offset=np.load(self.data_dir.image_filename[index], mmap_mode='r').offset
+            offset=np.load(self.data_dir.image_filenames[index], mmap_mode='r').offset
 
             vessels_present=False
             count=0
@@ -122,7 +122,7 @@ class DataGenerator(Sequence):
                  if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>1: #sub-volume must contain at least 0.1% vessels
                     vessels_present=True
                      
-        return X, to_categorical(y, num_classes=self.n_classes)
+        return X.astype('float32'), to_categorical(y, num_classes=self.n_classes)
            
     def _augmentation(self, X, y):
         # Apply data augmentations to each image/label pair in batch
