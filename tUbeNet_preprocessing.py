@@ -10,7 +10,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 import tUbeNet_functions as tube
-from tUbeNet_classes import DataHeader
+from tUbeNet.tUbeNet_classes import DataHeader
 import argparse
 
 def preprocess_image( 
@@ -158,7 +158,7 @@ def iterative_preprocessing(args):
 
 def main():
  
-    parser = argparse.ArgumentParser(description="A simple argument parser example")
+    parser = argparse.ArgumentParser(description="Preprocessing of image and label data for tUbeNet")
     
     parser.add_argument('--downsample_factor', default=1, type=int)
     parser.add_argument('--pad_array', default=(None,None,None),type=tuple)

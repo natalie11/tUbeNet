@@ -11,7 +11,7 @@ import numpy as np
 import random
 import math
 from functools import partial
-from model import tUbeNet
+from tUbeNet.model import tUbeNet
 import nibabel as nib
 
 # import required objects and fuctions from keras
@@ -19,7 +19,7 @@ from tensorflow.keras.models import Model, model_from_json
 # CNN layers
 from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
 # utilities
-from tensorflow.keras.utils import multi_gpu_model, to_categorical #np_utils
+from tensorflow.keras.utils import to_categorical #np_utils
 # opimiser
 from tensorflow.keras.optimizers import Adam, RMSprop, Nadam, SGD
 # checkpoint

@@ -11,14 +11,14 @@ import pickle
 from functools import partial
 import numpy as np
 import datetime
-from model import tUbeNet
-import tUbeNet_functions as tube
-from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
+from tUbeNet.model import tUbeNet
+import tUbeNet.tUbeNet_functions as tube
+from tUbeNet.tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 import argparse
 
 def main(
-    volume_dims = (64,64,64),
+    dim = 64,
     n_epochs = 50,
     steps_per_epoch = 10,
     batch_size = 6,
@@ -41,6 +41,8 @@ def main(
     updated_model_filename = '[updated model filename]',
     output_path = '[path to predictions folder]'
     ):
+    
+    volume_dims = (dim,dim,dim)
 
     #----------------------------------------------------------------------------------------------------------------------------------------------
     """ Create Data Directory"""
@@ -216,12 +218,12 @@ def main(
 if __name__=='__main__':
 
     """
-    python tubenet3d_multimodal.py --data_path /mnt/data2/vamp/tubenet/headers
+    python -m pdb tubenet3d_multimodal.py --data_path "/home/simon/Dropbox (UCL)/vamp/tubenet/train/headers" --output_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output" --val_path "/home/simon/Dropbox (UCL)/vamp/tubenet/test/headers" --model_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model"
     """
 
     parser = argparse.ArgumentParser(description="tUbeNet training/prediction")
     
-    parser.add_argument('--volume_dims', default=(64,64,64), type=tuple, help='Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2)')
+    parser.add_argument('--dim', default=64, type=int, help='Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2)')
     parser.add_argument('--n_epochs', default=50,type=int, help='Number of epoch for training CNN')
     parser.add_argument('--steps_per_epoch', default=10,type=int,help='Number of steps (batches of samples) to yield from generator before declaring one epoch finished')
     parser.add_argument('--batch_size', default=6,type=int,help='Batch size for training CNN')
@@ -231,12 +233,12 @@ if __name__=='__main__':
     parser.add_argument('--lr0', default=1e-3,type=float,help='Initial learning rate')
     parser.add_argument('--class_weights', default=(1,7),type=tuple,help='if using weighted loss: relative weighting of background to blood vessel classes')
     parser.add_argument('--augment', action='store_false',help='Augment training data, True/False')
-    parser.add_argument('--attention', default='store_true',help='Use attention (not yet implemented!)')
-    parser.add_argument('--use_saved_model', default='store_true',help='use previously saved model structure and weights? Yes=True, No=False')
-    parser.add_argument('--fine_tune', default='store_false',help='prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False')
-    parser.add_argument('--binary_output', default='store_true',help='save as binary (True) or softmax (False)')
-    parser.add_argument('--save_model', default='store_false',help='save model structure and weights? Yes=True, No=False')
-    parser.add_argument('--prediction_only', default='store_false',help='if True -> training is skipped')
+    parser.add_argument('--attention', action='store_true',help='Use attention (not yet implemented!)')
+    parser.add_argument('--use_saved_model', action='store_true',help='use previously saved model structure and weights? Yes=True, No=False')
+    parser.add_argument('--fine_tune', action='store_false',help='prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False')
+    parser.add_argument('--binary_output', action='store_true',help='save as binary (True) or softmax (False)')
+    parser.add_argument('--save_model', action='store_false',help='save model structure and weights? Yes=True, No=False')
+    parser.add_argument('--prediction_only', action='store_false',help='if True -> training is skipped')
     
     parser.add_argument('--data_path', default='',type=str,help='Path to preprocessed data headers folder')
     parser.add_argument('--val_path', default='',type=str,help='Path to preprocessed validation data headers folder (optional)')

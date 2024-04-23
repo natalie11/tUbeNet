@@ -162,7 +162,7 @@ class tUbeNet(tf.keras.Model):
         self.alpha=alpha
         self.attention=attention
         
-    def build(self, encoder_only=False):        
+    def build_model(self, encoder_only=False):        
         inputs = Input((*self.input_dims, 1))
              
         block1 = EncodeBlock(channels=32, alpha=self.alpha, dropout=self.dropout)(inputs)
@@ -211,11 +211,11 @@ class tUbeNet(tf.keras.Model):
             strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
             print("Creating model on {} GPUs".format(n_gpus))
             with strategy.scope():	
-    	           model = self.build(encoder_only=encoder_only)
-    	           model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    	           model = self.build_model(encoder_only=encoder_only)
+    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
         else:
-            model = self.build(encoder_only=encoder_only)
-            model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+            model = self.build_model(encoder_only=encoder_only)
+            model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
         
         return model
     
@@ -253,14 +253,13 @@ class tUbeNet(tf.keras.Model):
         else:
             print('Loss not recognised, using categorical crossentropy')
             custom_loss='categorical_crossentropy'
-        
-        
+
         if fine_tune:
             if n_gpus>1:
     	           strategy = tf.distribute.MirroredStrategy(cross_device_ops = tf.distribute.HierarchicalCopyAllReduce())
     	           print("Creating model on {} GPUs".format(n_gpus))
     	           with strategy.scope():
-    	                  model = self.build()
+    	                  model = self.build_model()
     	                  # load weights into new model
     	                  model.load_weights(mfile)
                           
@@ -271,10 +270,10 @@ class tUbeNet(tf.keras.Model):
                           # freeze weights for selected layers
     	                  for layer in model.layers[:freeze_layers]: layer.trainable = False
                           
-    	                  model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    	                  model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
             else:
-    	           model = self.build()
+    	           model = self.build_model()
     	           # load weights into new model
     	           model.load_weights(mfile)
                           
@@ -285,22 +284,22 @@ class tUbeNet(tf.keras.Model):
     	           # freeze weights for selected layers
     	           for layer in model.layers[:freeze_layers]: layer.trainable = False
                           
-    	           model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
         else:
             if n_gpus>1:
     	           strategy = tf.distribute.MirroredStrategy()
     	           print("Creating model on {} GPUs".format(n_gpus))
     	           with strategy.scope():
-    	                  model = self.build()
+    	                  model = self.build_model()
     	                  # load weights into new model
     	                  model.load_weights(mfile)
-    	                  model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    	                  model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
             else:
-    	           model = self.build()
+    	           model = self.build_model()
     	           # load weights into new model
     	           model.load_weights(mfile)
-    	           model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
         print('Model Summary')
         model.summary()
@@ -346,11 +345,11 @@ class tUbeNet(tf.keras.Model):
             print("Creating model on {} GPUs".format(n_gpus))
             with strategy.scope():
                 # build and load weights into encoder only model
-                encoder_model = self.build(encoder_only=True)
+                encoder_model = self.build_model(encoder_only=True)
                 encoder_model.load_weights(mfile)
                 
                 # build full model
-                model = self.build()
+                model = self.build_model()
                 
                 # transfer weights for all encoder layers, except dense layer
                 for i, layer in enumerate(encoder_model.layers[:-1]):
@@ -359,15 +358,15 @@ class tUbeNet(tf.keras.Model):
                     model.layers[i].set_weights(weights)
 
                 #Compile model
-                model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+                model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
         else:
             # build and load weights into encoder only model
-            encoder_model = self.build(encoder_only=True)
+            encoder_model = self.build_model(encoder_only=True)
             encoder_model.load_weights(mfile)
                 
             # build full model
-            model = self.build()
+            model = self.build_model()
                 
             # transfer weights for all encoder layers, except dense layer
             for i, layer in enumerate(encoder_model.layers[:-1]):
@@ -376,7 +375,7 @@ class tUbeNet(tf.keras.Model):
                 model.layers[i].set_weights(weights)
 
             #Compile model
-            model.compile(optimizer=Adam(lr=learning_rate), loss=custom_loss, metrics=metrics)
+            model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
 
         print('Model Summary')
