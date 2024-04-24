@@ -765,7 +765,6 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         fig.savefig(os.path.join(prediction_filename,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
         print('Average Precision Score: {}'.format(average_precision_score(np.ravel(y_test_all), np.ravel(y_pred_all))))
 
-        
         if binary_output:
             binary_pred = np.zeros(y_pred_all.shape)
             binary_pred[y_pred_all>=pr_thresholds[optimal_idx]] = 1

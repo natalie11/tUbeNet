@@ -82,7 +82,8 @@ class AttnBlock(tf.keras.layers.Layer):
     
 class EncodeBlock(tf.keras.layers.Layer):
 	def __init__(self, channels=32, alpha=0.2, dropout=0.3):
-		super(EncodeBlock,self).__init__()
+		#super(EncodeBlock,self).__init__()
+		super().__init__()
 		self.conv1 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		self.conv2 = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		#self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
@@ -103,7 +104,8 @@ class EncodeBlock(tf.keras.layers.Layer):
 
 class DecodeBlock(tf.keras.layers.Layer):
 	def __init__(self, channels=32, alpha=0.2):
-		super(DecodeBlock,self).__init__()
+		#super(DecodeBlock,self).__init__()
+		super().__init__()
 		self.transpose = Conv3DTranspose(channels, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')
 		self.conv = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
 		#self.norm = tfa.layers.GroupNormalization(groups=int(channels/4), axis=4)
@@ -382,19 +384,71 @@ class tUbeNet(tf.keras.Model):
         model.summary()
         return model
         
+class tUbeNetProc(tUbeNet):
+
+    def __init__(self,size=-1,nblock=-1,max_blocks=15,max_n_channel=512,**kwargs):
+        super().__init__(**kwargs)
+        self.nblock = nblock
+        self.max_blocks = max_blocks
+        self.max_n_channel = max_n_channel
+        self.size = size
+        if self.size<=0:
+            self.size = self.input_dims[0]
+
+    def _create_encoder(self,input_layer=None,ns=None):    
+
+        conv_layers = []
+        for i in range(self.nblock-1):
+            if i==0:
+                prevLayer = input_layer
+            else:
+                prevLayer = conv
+            conv = EncodeBlock(channels=ns[i],alpha=self.alpha, dropout=self.dropout)(prevLayer)
+            conv_layers.append(conv) 
+        out = UBlock(channels=ns[-1], alpha=self.alpha)(conv) 
+        conv_layers.append(out)
+        return conv_layers
         
+    def _create_decoder(self,encoder_blocks,ns):
+
+        decode_layers = []
+        for i in range(self.nblock-1): 
+            if i==0:
+                prevLayer = encoder_blocks[-1]
+            else:
+                prevLayer = decode_layers[-1]
+            upblock = DecodeBlock(channels=ns[self.nblock-2-i], alpha=self.alpha)(encoder_blocks[self.nblock-i-2], prevLayer, attention=self.attention)
+            decode_layers.append(upblock) 
+        output = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(decode_layers[-1])
+        return output
         
+    def _calc_n_blocks(self):
+        # Calculate maximum number of blocks
+        nblockLrg = int(np.log(self.size) / np.log(2))
+        # Set largest number of blocks, if smaller than  maximum
+        self.nblock = np.min([self.max_blocks,nblockLrg])
+
+    def build_model(self,encoder_only=False):
+
+        inputs = Input((*self.input_dims, 1))
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        if self.nblock<0 or self.nblock>self.max_blocks:
+            self._calc_n_blocks()
+            
+        ns = np.asarray([np.power(2,x+1) for x in range(2,self.nblock+2)])
+        ns = np.clip(ns,0,self.max_n_channel)
+
+        # Encoding
+        conv_layers = self._create_encoder(input_layer=inputs,ns=ns)
+
+        if encoder_only:
+            output = EncoderOnlyOutput(channels=ns[1], alpha=self.alpha)(conv_layers[-1])
+        else:
+            # Decoding
+	        out_dec = self._create_decoder(conv_layers,ns)
+	        # Final layers
+	        output = Conv3D(self.n_classes, 1, activation='softmax')(out_dec)
+
+        model = Model(inputs=[inputs], outputs=[output]) 
+    
+        return model

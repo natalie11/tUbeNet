@@ -11,11 +11,13 @@ import pickle
 from functools import partial
 import numpy as np
 import datetime
-from tUbeNet.model import tUbeNet
+from tUbeNet.model import tUbeNet, tUbeNetProc
 import tUbeNet.tUbeNet_functions as tube
 from tUbeNet.tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
 import argparse
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 def main(
     dim = 64,
@@ -28,6 +30,8 @@ def main(
     lr0 = 1e-3,
     class_weights = (1, 7),
     augment = True,
+    add_noise = False,
+    noise_sd = 0.1,
     attention = False,
     use_saved_model = True,
     fine_tune = True,
@@ -83,7 +87,9 @@ def main(
               'n_classes': n_classes,
               'dataset_weighting': dataset_weighting,
               'augment':augment,
-	           'shuffle': False}
+              'add_noise': add_noise,
+              'noise_sd': noise_sd,
+              'shuffle': False}
 
     data_generator=DataGenerator(data_dir, **params)
 
@@ -92,7 +98,7 @@ def main(
     # callbacks              
     #time_callback = tube.TimeHistory()		      
     #stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
-    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
+    tubenet = tUbeNetProc(n_classes=n_classes, input_dims=volume_dims, attention=attention)
 
     if use_saved_model:
         # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
@@ -120,6 +126,8 @@ def main(
         imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
         filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
         metricCallback = MetricDisplayCallback(log_dir=log_dir)
+            
+        callbacks = [LearningRateScheduler(schedule),checkpoint,tbCallback,imageCallback,metricCallback] #[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback]
             
 	    # Create directory of validation data
         if val_path is not None:
@@ -157,19 +165,25 @@ def main(
               'n_classes': n_classes,
               'dataset_weighting': None,
               'augment': False,
-	           'shuffle': False}
+              'add_noise': False,
+              'noise_sd': 0.1,
+              'shuffle': False}
             
             val_generator=DataGenerator(val_dir, **vparams)
-            
-            # TRAIN with validation
-            history=model.fit(data_generator, validation_data=val_generator, validation_steps=4, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                        callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
-
+            validation_steps = 4
         else:
-            # TRAIN without validation
-            history=model.fit(data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                        callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
-       
+            val_generator = None
+            validation_steps = 0
+            
+        # TRAIN
+        model.summary()
+        history = model.fit(    data_generator, 
+                                validation_data=val_generator, 
+                                validation_steps=validation_steps, 
+                                epochs=n_epochs,
+                                steps_per_epoch=steps_per_epoch, 
+                                callbacks=callbacks)
+
         # SAVE MODEL
         if save_model:
             #model.save(os.path.join(model_path,updated_model_filename))
@@ -218,7 +232,7 @@ def main(
 if __name__=='__main__':
 
     """
-    python -m pdb tubenet3d_multimodal.py --data_path "/home/simon/Dropbox (UCL)/vamp/tubenet/train/headers" --output_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output" --val_path "/home/simon/Dropbox (UCL)/vamp/tubenet/test/headers" --model_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model"
+    python tubenet3d_multimodal.py --data_path "/home/simon/Dropbox (UCL)/vamp/tubenet/train/headers" --output_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output" --val_path "/home/simon/Dropbox (UCL)/vamp/tubenet/test/headers" --model_path "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model" --add_noise
     tensorboard --logdir "/home/simon/Dropbox (UCL)/vamp/tubenet_output/model"
     """
 
@@ -234,6 +248,8 @@ if __name__=='__main__':
     parser.add_argument('--lr0', default=1e-3,type=float,help='Initial learning rate')
     parser.add_argument('--class_weights', default=(1,7),type=tuple,help='if using weighted loss: relative weighting of background to blood vessel classes')
     parser.add_argument('--augment', action='store_false',help='Augment training data, True/False')
+    parser.add_argument('--add_noise', action='store_false',help='Add noise during training, True/False')
+    parser.add_argument('--noise_sd',default=0.1, type=float, help='Noise standard deviation')
     parser.add_argument('--attention', action='store_true',help='Use attention (not yet implemented!)')
     parser.add_argument('--use_saved_model', action='store_true',help='use previously saved model structure and weights? Yes=True, No=False')
     parser.add_argument('--fine_tune', action='store_true',help='prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False')
@@ -243,10 +259,10 @@ if __name__=='__main__':
     
     parser.add_argument('--data_path', default='',type=str,help='Path to preprocessed data headers folder')
     parser.add_argument('--val_path', default='',type=str,help='Path to preprocessed validation data headers folder (optional)')
-    parser.add_argument('--model_path', default='',type=str,help='Path to model folder')
-    parser.add_argument('--model_filename', default='',type=str,help='Model filename')
-    parser.add_argument('--updated_model_filename', default='',type=str,help='Updated model filename')
-    parser.add_argument('--output_path', default='',type=str,help='Path to predictions folder')
+    parser.add_argument('--model_path', default='./model',type=str,help='Path to model folder')
+    parser.add_argument('--model_filename', default='',type=str,help='Filepath for model weights is using an exisiting model, else set to None')
+    parser.add_argument('--updated_model_filename', default='model_weights',type=str,help='Trained model will be saved under this name')
+    parser.add_argument('--output_path', default='./outputs',type=str,help='Path to predictions folder')
     
     # Parse arguments
     args = parser.parse_args()

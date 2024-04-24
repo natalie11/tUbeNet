@@ -43,7 +43,8 @@ class DataDir:
 
 class DataGenerator(Sequence):
     def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
-              dataset_weighting=None, augment=False):
+              dataset_weighting=None, augment=False, add_noise=False, noise_sd=0.1):
+        super().__init__()
         'Initialization'
         self.volume_dims = volume_dims
         self.batch_size = batch_size
@@ -53,6 +54,8 @@ class DataGenerator(Sequence):
         self.n_classes = n_classes
         self.dataset_weighting = dataset_weighting
         self.augment = augment
+        self.add_noise = add_noise
+        self.noise_sd = noise_sd
         
     def __len__(self):
         'Denotes the max number of batches per epoch'
@@ -73,11 +76,13 @@ class DataGenerator(Sequence):
         X, y = self.__data_generation(list_IDs_temp)
         if self.augment: 
             self._augmentation(X,y)
+        if self.add_noise:
+            self._add_gaussian_noise(X,sd=self.noise_sd)
 
         # Reshape to add depth of 1
         X = X.reshape(*X.shape, 1)
 
-        return X, y
+        return X.astype('float32'), y.astype('float32')
         
     def on_epoch_end(self):
         'Updates indexes after each epoch'
@@ -122,7 +127,7 @@ class DataGenerator(Sequence):
                  if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>1: #sub-volume must contain at least 0.1% vessels
                     vessels_present=True
                      
-        return X.astype('float32'), to_categorical(y, num_classes=self.n_classes)
+        return X, to_categorical(y, num_classes=self.n_classes)
            
     def _augmentation(self, X, y):
         # Apply data augmentations to each image/label pair in batch
@@ -159,7 +164,10 @@ class DataGenerator(Sequence):
                     y[i] = np.flip(y[i],(1,2)) 
             #if axes==3, no flip
         return X, y
-    
+
+    def _add_gaussian_noise(self, X, sd=0.1):     
+        X = X + np.random.normal(0,sd,X.shape)
+        return X  
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
@@ -192,8 +200,11 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         self.pred = self.model.predict(self.x)
         
         x_shape=self.x.shape
-        z_centre = int(x_shape[1]/2)
-        img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
+        z_centre = 0 #int(x_shape[1]/2)
+        for z_centre in range(x_shape[1]):
+            img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
+            if img.max()>0:
+                break
         labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
         pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
         img = tf.convert_to_tensor(img,dtype=tf.float32)
