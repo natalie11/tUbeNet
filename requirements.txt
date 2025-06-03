@@ -13,4 +13,4 @@ tensorflow==2.3.0
 tensorflow_addons==0.13.0
 tensorflow_gpu==2.3.0
 tifffile==2023.7.10
-protobuff==3.20.*
+protobuf==3.20.*
