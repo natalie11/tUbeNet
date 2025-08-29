@@ -7,6 +7,7 @@ Developed by Natalie Holroyd (UCL)
 
 #Import libraries
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #Suppress info logs from tf 
 import pickle
 import datetime
 from model import tUbeNet
@@ -20,8 +21,8 @@ from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 100			         	# Number of epoch for training CNN
-steps_per_epoch = 100		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 3			         	# Number of epoch for training CNN
+steps_per_epoch = 2 		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 6		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = None            # Relative weighting when pulling training data from multiple datasets
@@ -40,18 +41,18 @@ prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = '<Path to data headers folder>'
+data_path = '/home/natalie/Documents/tubenetTesting/preprocessedData/headers'
 
 # Validation data
-val_path = '<Path to validation headers folder>' # Set to None is not using validation data
+val_path = None # Set to None is not using validation data
 
 # Model
-model_path = '<Path to models folder>'
-model_filename =  '<Pre-trained model weights file>' # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = '<New model name>' # trained model will be saved under this name
+model_path = '/home/natalie/Documents/tubenetTesting/models'
+model_filename =  'testmodel.weights.h5' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = 'test' # trained model will be saved under this name
 
 # Image output
-output_path = '<Path to save outputs>' # predicted segmentations will be saved here
+output_path = '/home/natalie/Documents/tubenetTesting/predictions' # predicted segmentations will be saved here
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -104,7 +105,7 @@ if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
        model = tubenet.load_weights(filename=os.path.join(model_path,model_filename), loss=loss, class_weights=class_weights, learning_rate=lr0, 
                                  metrics=['accuracy', 'recall', 'precision'],
-                                 freeze_layers=0, fine_tune=fine_tune)
+                                 freeze_layers=2, fine_tune=fine_tune)
 
 else:
     model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights, 
@@ -120,7 +121,11 @@ if not prediction_only and header.label_filename is not None:
         os.makedirs(log_dir)
         
     #Callbacks
-    checkpoint = ModelCheckpoint(filepath, monitor="val_loss", verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+    if val_path is not None:
+        monitored_metric='val_loss'
+    else:
+        monitored_metric='loss'
+    checkpoint = ModelCheckpoint(filepath, monitor=monitored_metric, verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
     filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental

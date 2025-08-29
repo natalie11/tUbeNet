@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt
 # import tensor flow
 import tensorflow as tf
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 # set backend and dim ordering
 K=tf.keras.backend
 K.set_image_data_format('channels_last')

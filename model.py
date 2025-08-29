@@ -21,7 +21,7 @@ from tensorflow.keras.optimizers import Adam
 
 # import tensor flow
 import tensorflow as tf
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #suppress some tf logs
+
 # set backend and dim ordering
 K=tf.keras.backend
 K.set_image_data_format('channels_last')
@@ -184,7 +184,7 @@ class tUbeNet(tf.keras.Model):
     
             output = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5)
             
-        model = Model(inputs=[inputs], outputs=[output]) 
+        model = Model(inputs=inputs, outputs=output) 
         return model
     
     def selectLoss(self, loss_name, class_weights=None):

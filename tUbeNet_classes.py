@@ -18,6 +18,7 @@ import io
 from matplotlib import pyplot as plt
 from scipy.ndimage import rotate, zoom
 import tensorflow as tf
+
 from tensorflow.keras.utils import Sequence, to_categorical #np_utils
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
@@ -43,8 +44,10 @@ class DataDir:
 
 class DataGenerator(Sequence):
 	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
-              dataset_weighting=None, augment=False):
+              dataset_weighting=None, augment=False, **kwargs):
 	    'Initialization'
+	    super().__init__(**kwargs) 
+        
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
 	    self.shuffle = shuffle
@@ -76,7 +79,6 @@ class DataGenerator(Sequence):
 
 		# Reshape to add depth of 1
 		X = X.reshape(*X.shape, 1)
-
 		return X, y
 	    
 	def on_epoch_end(self):
