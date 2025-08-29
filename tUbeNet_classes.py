@@ -105,8 +105,8 @@ class DataGenerator(Sequence):
 	    for i, ID_temp in enumerate(list_IDs_temp):
 		    index=self.data_dir.list_IDs.index(ID_temp)
             
-            # Check offset of the .npy binary file (i.e. bytes before start of array data)
-            offset=np.load(self.data_dir.image_filename[index], mmap_mode='r').offset
+		    # Check offset of the .npy binary file (i.e. bytes before start of array data)
+		    offset=np.load(self.data_dir.image_filenames[index], mmap_mode='r').offset
             
 		    vessels_present=False
 		    count=0

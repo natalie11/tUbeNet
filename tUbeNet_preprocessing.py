@@ -25,13 +25,13 @@ crop = False                         # crop images if there are large sections o
 
 """ Paths and filenames """
 # Data directory
-path = '[path to data directory]'
-image_filename = '[data filename]'
-label_filename = '[labels filename (optional)]' # Set to None if not using labels
+path = '<Path to data folder>'
+image_filename = '<Image name>'
+label_filename = '<Labels name>' # Set to None if not using labels
 
 # Output directory
-output_path = '[path to output folder]'
-output_name = '[output filename]'
+output_path = '<Path to output folder>'
+output_name = '<Output name>'
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------

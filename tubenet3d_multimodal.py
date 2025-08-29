@@ -8,13 +8,11 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import os
 import pickle
-from functools import partial
-import numpy as np
 import datetime
 from model import tUbeNet
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
-from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -22,8 +20,8 @@ from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, T
 
 # Paramters
 volume_dims = (64,64,64)    	 	# Size of cube to be passed to CNN (z, x, y) in form (n^2 x n^2 x n^2) 
-n_epochs = 50			         	# Number of epoch for training CNN
-steps_per_epoch = 10		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
+n_epochs = 100			         	# Number of epoch for training CNN
+steps_per_epoch = 100		        # Number of steps (batches of samples) to yield from generator before declaring one epoch finished
 batch_size = 6		 	       	    # Batch size for training CNN
 n_classes=2                         # Number of classes
 dataset_weighting = None            # Relative weighting when pulling training data from multiple datasets
@@ -35,25 +33,25 @@ attention = False
 
 # Training and prediction options
 use_saved_model = True	        	# use previously saved model structure and weights? Yes=True, No=False
-fine_tune = True                    # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
+fine_tune = True                   # prepare model for fine tuning by replacing classifier and freezing shallow layers? Yes=True, No=False
 binary_output = False	           	# save as binary (True) or softmax (False)
 save_model = True		        	# save model structure and weights? Yes=True, No=False
 prediction_only = False             # if True -> training is skipped
 
 """ Paths and filenames """
 # Training data
-data_path = '[path to preprocessed data headers folder]'
+data_path = '<Path to data headers folder>'
 
 # Validation data
-val_path = '[path to preprocessed validation data headers folder (optional)]'  # Set to None is not using validation data
+val_path = '<Path to validation headers folder>' # Set to None is not using validation data
 
 # Model
-model_path = '[path to model folder]'
-model_filename =  '[model filename]'  # filepath for model weights is using an exisiting model, else set to None
-updated_model_filename = '[updated model filename]' # trained model will be saved under this name
+model_path = '<Path to models folder>'
+model_filename =  '<Pre-trained model weights file>' # filepath for model weights is using an exisiting model, else set to None
+updated_model_filename = '<New model name>' # trained model will be saved under this name
 
 # Image output
-output_path = '[path to predictions folder]' # predicted segmentations will be saved here
+output_path = '<Path to save outputs>' # predicted segmentations will be saved here
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 """ Create Data Directory"""
@@ -100,33 +98,29 @@ data_generator=DataGenerator(data_dir, **params)
 
 
 """ Load or Build Model """
-# callbacks              
-#time_callback = tube.TimeHistory()		      
-#stop_time_callback = tube.TimedStopping(seconds=18000, verbose=1)
 tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
 
 if use_saved_model:
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
        model = tubenet.load_weights(filename=os.path.join(model_path,model_filename), loss=loss, class_weights=class_weights, learning_rate=lr0, 
-                                 metrics=['accuracy', tube.recall, tube.precision, tube.dice],
+                                 metrics=['accuracy', 'recall', 'precision'],
                                  freeze_layers=0, fine_tune=fine_tune)
 
 else:
     model = tubenet.create(learning_rate=lr0, loss=loss, class_weights=class_weights, 
-                           metrics=['accuracy', tube.recall, tube.precision, tube.dice])
+                           metrics=['accuracy', 'recall', 'precision'])
 
 """ Train and save model """
 if not prediction_only and header.label_filename is not None:
     #Log files
     date = datetime.datetime.now()
-    filepath = os.path.join(model_path,"{}_model_checkpoint.h5".format(date.strftime("%d%m%y")))
+    filepath = os.path.join(model_path,"{}_model_checkpoint.weights.h5".format(date.strftime("%d%m%y")))
     log_dir = os.path.join(model_path,'logs')
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
     #Callbacks
-    schedule = partial(tube.piecewise_schedule, lr0=lr0, decay=0.9)
-    checkpoint = ModelCheckpoint(filepath, monitor='dice', verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+    checkpoint = ModelCheckpoint(filepath, monitor="val_loss", verbose=1, save_weights_only=True, save_best_only=True, mode='max')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
     filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
@@ -173,18 +167,18 @@ if not prediction_only and header.label_filename is not None:
         val_generator=DataGenerator(val_dir, **vparams)
         
         # TRAIN with validation
-        history=model.fit_generator(generator=data_generator, validation_data=val_generator, validation_steps=4, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
+        history=model.fit(data_generator, validation_data=val_generator, validation_steps=4, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                    callbacks=[checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
 
     else:
         # TRAIN without validation
-        history=model.fit_generator(generator=data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
-                                    callbacks=[LearningRateScheduler(schedule), checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
+        history=model.fit(data_generator, epochs=n_epochs, steps_per_epoch=steps_per_epoch, 
+                                    callbacks=[checkpoint, tbCallback, imageCallback, filterCallback, metricCallback])
    
     # SAVE MODEL
     if save_model:
         #model.save(os.path.join(model_path,updated_model_filename))
-        model.save_weights(os.path.join(model_path,updated_model_filename), save_format='h5')
+        model.save_weights(os.path.join(model_path,updated_model_filename)+".weights.h5")
 
     """ Plot ROC """
     # Create directory of validation data

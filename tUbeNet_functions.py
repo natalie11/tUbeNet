@@ -10,27 +10,18 @@ import os
 import numpy as np
 import random
 import math
-from functools import partial
-from model import tUbeNet
-import nibabel as nib
-
-# import required objects and fuctions from keras
-from tensorflow.keras.models import Model, model_from_json
-# CNN layers
-from tensorflow.keras.layers import Input, concatenate, Conv3D, MaxPooling3D, Conv3DTranspose, LeakyReLU, Dropout#, AveragePooling3D, Reshape, Flatten, Dense, Lambda
-# utilities
-from tensorflow.keras.utils import multi_gpu_model, to_categorical #np_utils
-# opimiser
-from tensorflow.keras.optimizers import Adam, RMSprop, Nadam, SGD
-# checkpoint
-from tensorflow.keras.callbacks import ModelCheckpoint, Callback, EarlyStopping, LearningRateScheduler
-# import time for recording time for each epoch
-import time
+from tensorflow.keras.utils import to_categorical
+from PIL import Image
+from skimage import io
+from skimage.measure import block_reduce
+from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay
+import matplotlib.pyplot as plt
 
 # import tensor flow
 import tensorflow as tf
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' #disables warning about not utilizing AVX AVX2
-# set backend and dim ordering (updated for keras 2.5/ tf 2, keras is now within tensorflow)
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+# set backend and dim ordering
 K=tf.keras.backend
 K.set_image_data_format('channels_last')
 
@@ -40,16 +31,7 @@ try:
   for gpu in physical_devices:
       tf.config.experimental.set_memory_growth(gpu, True)
 except:
-  # Invalid device or cannot modify virtual devices once initialized.
   pass
-
-import matplotlib.pyplot as plt
-
-# import Image for loading data
-from PIL import Image
-from skimage import io
-from skimage.measure import block_reduce
-from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve, average_precision_score, PrecisionRecallDisplay
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 def save_image(array, filename):
@@ -277,38 +259,7 @@ def load_batch(batch_size=1, volume_dims=(64,64,64),
     return img_batch
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-"""Custom loss functions"""
-def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
-
-def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
-    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice_loss = 1-dice(y_true, y_pred)
-    Dice_BCE = (BCE + dice_loss)/2
-    return Dice_BCE
-
 """Custom metrics"""
-def precision(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-
-def recall(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-
-def dice(y_true, y_pred):
-    P = precision(y_true, y_pred)
-    R = recall(y_true, y_pred)
-    dice = 2*(P*R)/(P+R+K.epsilon())
-    return dice
-
 # Use when y_true/y_pred are np arrays rather than keras tensors
 def precision_logical(y_true, y_pred):
 	#true positive
@@ -325,54 +276,6 @@ def recall_logical(y_true, y_pred):
 	FN = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,0)))
 	recall1=TP/(TP+FN)
 	return recall1
-
-"""Custom callbacks"""
-class TimeHistory(Callback):
-    # Record time taken to perform each epoch
-    def on_train_begin(self, logs={}):
-        self.times = []
-
-    def on_epoch_begin(self, batch, logs={}):
-        self.epoch_time_start = time.time()
-
-    def on_epoch_end(self, batch, logs={}):
-        self.times.append(time.time() - self.epoch_time_start)
-
-class TimedStopping(Callback):
-#    From https://github.com/keras-team/keras/issues/1625
-#    Stop training when enough time has passed.
-#    Arguments
-#        seconds: maximum time before stopping.
-#        verbose: verbosity mode.
-    
-    def __init__(self, seconds=None, verbose=0):
-        super(Callback, self).__init__()
-
-        self.start_time = 0
-        self.seconds = seconds
-        self.verbose = verbose
-
-    def on_train_begin(self, logs={}):
-        self.start_time = time.time()
-
-    def on_epoch_end(self, epoch, logs={}):
-        if time.time() - self.start_time > self.seconds:
-            self.model.stop_training = True
-            if self.verbose:
-                print('Stopping after %s seconds.' % self.seconds)
-
-
-def piecewise_schedule(i, lr0, decay):
-	""" Learning rate function 
-    Updates learning rate at end epoch.
-    Inputs:
-        i = training epoch (int)
-        lr0 = initial learning rate (float)
-        decay = decay rate (float)
-    """
-	lr = lr0 * decay**(i)
-	tf.summary.scalar('learning rate', data=lr, step=i)
-	return lr
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
   
@@ -395,7 +298,6 @@ def predict_segmentation(model=None, data_dir=None,
         path = path for saving outputs (string)
  
     """  
-  n_classes = len(classes)
   for index in range(0,len(data_dir.list_IDs)):
       # Format volume_dims as (z,x,y)
       if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
@@ -644,9 +546,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
     optimal_thresholds = []
     recall = []
     precision = []
-    pr_optimal_thresholds = []
-    pr_recall = []
-    pr_precision = []
+
     volume_dims_temp=list(volume_dims)#convert from tuple to list for easier re-assignment of elements
     
     for index in range(0,len(data_dir.list_IDs)):
@@ -721,21 +621,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         recall.append(tpr[optimal_idx])
         print('Precision at optimal threshold: {}'.format(1-fpr[optimal_idx]))
         precision.append(1-fpr[optimal_idx])
-        
-        # if binary_output:
-        #     binary_pred = np.zeros(y_pred_all.shape)
-        #     binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
-        #     y_pred_all = binary_pred
-        
-        # # Save predicted segmentation      
-        # if save_prediction:
-        #     # threshold using optimal threshold
-        #     #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
-        #     for im in range(y_pred_all.shape[0]):
-        #         save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
-        #         save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
-        #     print('Predicted segmentation saved to {}'.format(prediction_filename))
-                
+
         # Plot ROC 
         fig = plt.figure()
         plt.plot(fpr, tpr, color='darkorange',
@@ -764,7 +650,7 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         
         if binary_output:
             binary_pred = np.zeros(y_pred_all.shape)
-            binary_pred[y_pred_all>=pr_thresholds[optimal_idx]] = 1
+            binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
             y_pred_all = binary_pred
         
         # Save predicted segmentation      
