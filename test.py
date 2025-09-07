@@ -87,7 +87,7 @@ def parse_dims(values):
             "or three values (e.g. --volume_dims 64 64 32).")
     
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run prediction using TubeNet model.")
+    parser = argparse.ArgumentParser(description="Evaluate TubeNet model on paired data.")
 
     parser.add_argument("--data_headers", type=str, required=True,
                         help="Path to directory containing preprocessed header files.")

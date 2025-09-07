@@ -180,7 +180,7 @@ def predict_segmentation_dask(
         axs[1].set_title(f"Prediction z={z}")
         axs[1].axis("off")
         plt.tight_layout()
-        fig.savefig(os.path.join(out_store,'_preview_z'+str(z)+'.png'))
+        fig.savefig(os.path.join(out_store,'preview_z'+str(z)+'.png'))
         
 
     # Inference step - iterate through windows and blend with weighted sum
