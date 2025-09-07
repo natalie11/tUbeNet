@@ -8,14 +8,14 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import os
 import numpy as np
-import random
-import math
-from tensorflow.keras.utils import to_categorical
-from PIL import Image
 from skimage import io
-from skimage.measure import block_reduce
 from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay
 import matplotlib.pyplot as plt
+import dask.array as da
+import zarr
+from tqdm import tqdm
+from scipy.signal.windows import general_hamming
+import tifffile as tiff
 
 # import tensor flow
 import tensorflow as tf
@@ -32,230 +32,6 @@ try:
 except:
   pass
 
-#----------------------------------------------------------------------------------------------------------------------------------------------
-def save_image(array, filename):
-    """Save image to file
-    Inputs: 
-        array = 2D np.array containing mage data to be saved
-        filename = name under which to save file, including file extension
-    """
-    image = Image.fromarray(array)
-    image.save(filename)
-
-def load_volume_from_file(volume_dims=(64,64,64), image_dims=None, 
-				  image_filename=None, label_filename=None, 
-				  coords=None, data_type='float64', offset=128):
-  """Load a sub-volume of the 3D image. 
-  These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
-  Inputs: 
-    volume_dims = shape of sub-volume, given as (z,x,y) (tuple of int, default (64,64,64))
-    image_dims = shape of image to be accessed, (z,x,y) (tuple of int)
-    image_filename = filename for np array of pre-processed image data (z,x,y)
-    label_filename = filename for np array of labels, (z,x,y,c) where c is the number of chanels. Array should be int8. Optional.
-    coords = coordinates for top left corner of sub-volume (tuple of int, if not specified will be randomly generated)
-    data_type = data type of the image array (string, default 'float634')
-    offset = number of bytes in file before pixel data begins (int, default 128)
-  Outputs:
-    volume = sub-section of the image array with dimensions equal to volume_dims
-    labels_volume = corrosponding array of image labels (if labels provided)
-  """
-
-  #Format volume_dims as (z,x,y)
-  if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
-    volume_dims = (volume_dims, volume_dims, volume_dims)
-  elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
-    volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
-  
-  # Check for sensible volume dimensions
-  for i in range(3):
-    if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
-      raise Exception('Volume dimensions out of range')
-	
-  if coords is not None:
-    # check for sensible coordinates
-    for i in range(3):
-      if coords[i]<0 or coords[i]>(image_dims[i]-volume_dims[i]):
-        raise Exception('Coordinates out of range in dimension '+str(i))
-  else:
-    # generate random coordinates for upper left corner of volume
-    coords = np.zeros(3)
-    coords[0] = random.randint(0,(image_dims[0]-volume_dims[0]))
-    coords[1] = random.randint(0,(image_dims[1]-volume_dims[1])) 
-    coords[2] = random.randint(0,(image_dims[2]-volume_dims[2]))
-  
-  # Set number of bytes per pixel, depending on data_type  
-  if data_type == 'float64' or data_type == 'int64':
-	  pixel = 8
-  elif data_type == 'float32' or data_type == 'int32':
-	  pixel = 4
-  elif data_type == 'int16':
-	  pixel = 2
-  elif data_type == 'int8' or data_type == 'bool':
-	  pixel = 1
-  else: raise Exception('Data type not supported')
-	
-  # Calculate y axis and z axis offset (number of bytes to skip to get to the next row)
-  y_offset = image_dims[2]*pixel
-  z_offset = image_dims[1]*image_dims[2]*pixel
-  
-  # Load data from file, one row at a time, using memmap
-  volume=np.zeros(volume_dims)
-  for z in range(volume_dims[0]):
-    for x in range(volume_dims[1]):
-        offset_zx = np.int64(offset) + np.int64(pixel*(coords[2])) + np.int64(y_offset)*np.int64(x+coords[1]) + np.int64(z_offset)*np.int64(z+coords[0])
-        volume[z,x,:]=np.memmap(image_filename, dtype=data_type,mode='c',shape=(1,1,volume_dims[2]),
-			 offset=offset_zx)
-  
-  # If labels_filename given, generate labels_volume using same coordinates
-  if label_filename is not None:
-      labels_volume = np.zeros(volume_dims)
-      for z in range(volume_dims[0]):
-          for x in range(volume_dims[1]):
-              offset_zx = np.int64(offset) + np.int64(coords[2]) + np.int64(image_dims[2])*np.int64(x+coords[1]) + np.int64(image_dims[1])*np.int64(image_dims[2])*np.int64(z+coords[0])
-              labels_volume[z,x,:]=np.memmap(label_filename, dtype='int8',mode='c',shape=(1,1,volume_dims[2]),
-                         offset=offset_zx)
-      return volume, labels_volume
-  else:
-      return volume
-
-
-def load_volume(volume_dims=(64,64,64), image_stack=None, labels=None, coords=None):
-  """Load a sub-volume of the 3D image. 
-    These can either be generated randomly, or be taked from defined co-ordinates (z, x, y) within the image.
-    Inputs: 
-    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
-    Outputs:
-    	volume = sub-section of the image array with dimensions equal to volume_dims
-    	labels_volume = corrosponding array of image labels (if labels provided)
-    """
-  image_dims = image_stack.shape #image_dims[0] = z, [1] = x, [2] = y
-  
-  #Format volume_dims as (z,x,y)
-  if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
-    volume_dims = (volume_dims, volume_dims, volume_dims)
-  elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
-    volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
-  # Check for sensible volume dimensions
-  for i in range(3):
-    if volume_dims[i]<=0 or volume_dims[i]>image_dims[i]:
-      raise Exception('Volume dimensions out of range')
-	
-  if coords is not None:
-    # check for sensible coordinates
-    for i in range(3):
-      if coords[i]<0 or coords[i]>(image_dims[i]-volume_dims[i]):
-        raise Exception('Coordinates out of range')
-  else:
-    # generate random coordinates for upper left corner of volume
-    coords = np.zeros(3)
-    coords[0] = random.randint(0,(image_dims[0]-volume_dims[0]))
-    coords[1] = random.randint(0,(image_dims[1]-volume_dims[1])) 
-    coords[2] = random.randint(0,(image_dims[2]-volume_dims[2]))
-  
-  # Create volume from coordinates
-  volume = image_stack[int(coords[0]):int(coords[0] + volume_dims[0]), int(coords[1]):int(coords[1] + volume_dims[1]), int(coords[2]):int(coords[2] + volume_dims[2])]
-  
-  if labels is not None:
-    # Create corrsponding labels
-    labels_volume = labels[int(coords[0]):int(coords[0] + volume_dims[0]), int(coords[1]):int(coords[1] + volume_dims[1]), int(coords[2]):int(coords[2] + volume_dims[2])]
-    return volume, labels_volume
-  else:
-    return volume
-
-
-# load batch of sub-volumes for training or label prediction
-def load_batch(batch_size=1, volume_dims=(64,64,64), 
-               image_stack=None, labels=None, 
-               coords=None, n_classes=None, step_size=None): 
-  """Load a batch of sub-volumes
-    Inputs:
-    	batch size = number of image sub-volumes per batch (int, default 1)
-    	volume_dims = shape of sub-volume, given as (z,x,y), tuple of int
-    	image_stack = 3D image, preprocessed and given as np array (z,x,y)
-    	labels = np array of labels, (z,x,y,c) where c is the number of chanels. Should be binary and one hot encoded. Optional.
-    	coords = coordinates for top left corner of sub-volume (if not specified, will be randomly generated)
-    	step_size = if loading volumes with pre-specified coordinates, this specifies the pixel distance between consecutive volumes 
-    			(equals volume_dims by default), (z,x,y) tuple of int
-    Output:
-    	img_batch = array of image sub-volumes in the format: (batch_size, img_depth, img_hight, img_width)"""
-    
-  # Format volume_dims as (z,x,y)
-  if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
-    volume_dims = (volume_dims, volume_dims, volume_dims)
-  elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
-    volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
-  # Check for sensible volume dimensions
-  for i in range(3):
-    if volume_dims[i]<=0 or volume_dims[i]>image_stack.shape[i]:
-      raise Exception('Volume dimensions out of range')   
-    
-  if coords is not None:
-    # Check for sensible coordinates
-    if step_size is None: step_size = volume_dims
-    for i in range(3):
-      if coords[i]<0 or coords[i]>(image_stack.shape[i]-volume_dims[i]):
-        raise Exception('Coordinates out of range')
-    # Check if labels have been provided
-    if labels is not None:
-      img_batch = []
-      labels_batch = []
-      for z in range(batch_size):
-        # Find coordinates
-        tmp_coords = (coords[0]+ (step_size[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
-        print('Loading image volume and labels with coordinates:{}'.format(tmp_coords))
-        # Load sub-volume, image and labels
-        volume, labels_volume = load_volume(volume_dims=volume_dims, coords=tmp_coords, image_stack=image_stack, labels=labels)
-        # Reshape volume and append to batch
-        volume = volume.reshape(volume_dims[0], volume_dims[1], volume_dims[2], 1)
-        img_batch.append(volume)
-        # One-hot-encoding labels and append to batch
-        labels_volume = to_categorical(labels_volume, n_classes)
-        labels_batch.append(labels_volume)
-    else:
-      img_batch = []
-      for z in range(batch_size):			
-        # Find coordinates
-        tmp_coords = (coords[0]+ (step_size[0]*z), coords[1], coords[2]) # move one volume dimension along the z axis
-        print('Loading image volume with coordinates:{}'.format(tmp_coords))
-        # Load random sub-volume, image and labels
-        volume = load_volume(volume_dims=volume_dims, coords=tmp_coords, image_stack=image_stack)
-        # Reshape volume and append to batch
-        volume = volume.reshape(volume_dims[0], volume_dims[1], volume_dims[2], 1)
-        img_batch.append(volume)
-  else:
-    # Load volumes with randomly generated coordinates
-    if labels is not None:
-      img_batch = []
-      labels_batch = []
-      for z in range(batch_size):
-        # Load sub-volume, image and labels
-        volume, labels_volume = load_volume(volume_dims=volume_dims, image_stack=image_stack, labels=labels)
-        # Reshape volume and append to batch
-        volume = volume.reshape(volume_dims[0], volume_dims[1], volume_dims[2], 1)
-        img_batch.append(volume)
-        # One-hot-encoding labels and append to batch
-        labels_volume = to_categorical(labels_volume, n_classes)
-        labels_batch.append(labels_volume)
-    else:
-      img_batch = []
-      for z in range(batch_size):
-        # Load random sub-volume, image only
-        volume = load_volume(volume_dims=volume_dims, image_stack=image_stack)
-        # Reshape volume and append to batch
-        volume = volume.reshape(volume_dims[0], volume_dims[1], volume_dims[2], 1)
-        img_batch.append(volume)
- 
-	# Convert img_batch to np arrray
-  img_batch = np.asarray(img_batch)
-	# Return either img_batch or img_batch and labels_batch   
-  if labels is not None:
-    labels_batch = np.asarray(labels_batch)
-    return img_batch, labels_batch
-  else:
-    return img_batch
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 """Custom metrics"""
@@ -276,344 +52,381 @@ def recall_logical(y_true, y_pred):
 	recall1=TP/(TP+FN)
 	return recall1
 
-#---------------------------------------------------------------------------------------------------------------------------------------------------
-  
+# Use when y_treu/ y_pred are keras tensors - for passing to model
+def precision(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
 
-# Get predicted segmentations (one hot encoded) for an image stack
-def predict_segmentation(model=None, data_dir=None, 
-                         volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
-                         binary_output=True, save_output=True, path=None): 
-  """# Prediction
-    Inputs:
-        model = ML model
-        data_dir = directory of data (DataDir object)
-        volume_dims = sub-volume size to be passed to model ((z,x,y) int, default (64,64,64))
-        batch_size = number of image sub volumes per batch int, default 2)
-        overlap =
-        classes =
-        binary_output =
-        save_output =
-        filename = filename for saving outputs (string)
-        path = path for saving outputs (string)
- 
-    """  
-  for index in range(0,len(data_dir.list_IDs)):
-      # Format volume_dims as (z,x,y)
-      if type(volume_dims) is int: # if only one dimension is given, assume volume is a cube
-        volume_dims = (volume_dims, volume_dims, volume_dims)
-      elif len(volume_dims)==2: # if two dimensions given, assume first dimension is depth
-        volume_dims = (volume_dims[0], volume_dims[1], volume_dims[1])
-        
-      # Check for sensible volume dimensions and step size
-      for i in range(3):
-        if volume_dims[i]<=0 or volume_dims[i]>data_dir.image_dims[index][i]:
-          raise Exception('Volume dimensions out of range')
-    	
-      if overlap is None:
-        overlap=0
-      for i in range(3):
-        if volume_dims[i]/2<overlap:
-          raise Exception('overlap cannot be greater than half of the smallest volume dimensions')
-      step_size=np.array(volume_dims)
-      step_size-=overlap
+def recall(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
 
-      # Calculate number of volumes that will fit into image dimentions
-      k_max = math.ceil(data_dir.image_dims[index][0]/step_size[0])
-      i_max = math.ceil(data_dir.image_dims[index][1]/step_size[1])
-      j_max = math.ceil(data_dir.image_dims[index][2]/(step_size[2]*batch_size)+0.0001)
-      
-      # Initialise 'overlap_region' variables
-      overlap_region_bottom = []
-      overlap_region_right = [None]*j_max
-      overlap_region_back = [None]*j_max
-      for ind in range(j_max): overlap_region_back[ind]=[None]*i_max
-      
-      volume_dims_temp=list(volume_dims)
-      overspill=list((0,0,0))
-      
-      for k in range(k_max):
-        # find z coordinates for batch
-        z = k*step_size[0]
-        print('z=',z)
-        # calculate if batch will go outside of range of image
-        overspill[0]=volume_dims[0]-(data_dir.image_dims[index][0]-z)
-        if overspill[0]>0 and overspill[0]<volume_dims[0]:
-            volume_dims_temp[0]=volume_dims[0]-overspill[0]
-        else: volume_dims_temp[0]=volume_dims[0]
-        
-        # Initialise seg_pred, where predictions will be stored until images can be saved
-        seg_pred = np.zeros((volume_dims_temp[0], data_dir.image_dims[index][1], data_dir.image_dims[index][2]))
-    			
-        for i in range(i_max):
-          x = i*step_size[1] # x coordinate for batch
-          print('x=',x)
-          # calculate if batch will go outside of range of image
-          overspill[1]=volume_dims[1]-(data_dir.image_dims[index][1]-x)
-          if overspill[1]>0 and overspill[1]<volume_dims[1]:
-              volume_dims_temp[1]=volume_dims[1]-overspill[1]
-          else: volume_dims_temp[1]=volume_dims[1]
-    	
-          for j in range(j_max):
-            y = j*step_size[2]*batch_size # y coordinate for batch		
-            print('y=',y)
-            # Create batch along z axis of image (axis 0 of image stack)
-            vol = np.zeros((batch_size, *volume_dims))
-            for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
-                # calculate if volume goes outside of range of data
-                overspill[2] = volume_dims[2]-(data_dir.image_dims[index][2]-(y+n*step_size[2]))
-                if overspill[2]>0 and overspill[2]<volume_dims[2]:
-                    volume_dims_temp[2]=volume_dims[2]-overspill[2]
-                elif overspill[2]>=volume_dims[2]:
-                    break
-                else: volume_dims_temp[2]=volume_dims[2]
-                # Load volume from data
-                vol[n, 0:volume_dims_temp[0], 0:volume_dims_temp[1], 0:volume_dims_temp[2]] = load_volume_from_file(volume_dims=volume_dims_temp, image_dims=data_dir.image_dims[index],
-                                        image_filename=data_dir.image_filenames[index], label_filename=None, 
-                                       coords=(z,x,y+n*step_size[2]), data_type=data_dir.data_type[index], offset=128) #only take first output						
-    			# predict segmentation using model
-            vol_pred_ohe = model.predict(vol,verbose=1) 
-            #vol_pred_ohe=vol_pred_ohe[0] #Required if output is a tuple of the prediction array and 
-            del vol
-      
-            # average overlapped region in y axis
-            vol_pred_ohe_av_y = np.zeros((vol_pred_ohe.shape[1],vol_pred_ohe.shape[2],step_size[2]*batch_size,vol_pred_ohe.shape[4]))
-            for n in range(batch_size):
-                # Define top overlapping region
-                overlap_region_top = vol_pred_ohe[n,:,:,0:overlap,:]
-                # If this is first iteration in y, average of overlapping region is just overlap_region_top
-                if y==0: overlap_region_av = overlap_region_top
-                # Else, load the bottom overlapping region for the previous z coordinate with the same x and y coordinates
-                else: overlap_region_av = (overlap_region_top+overlap_region_bottom)/2
-                unique_region = vol_pred_ohe[n,:,:,overlap:step_size[2],:]
-                vol_pred_ohe_av_y[:,:,(n)*step_size[2]:(n)*step_size[2]+overlap,:] = overlap_region_av
-                vol_pred_ohe_av_y[:,:,(n)*step_size[2]+overlap:(n+1)*step_size[2],:] = unique_region
-                overlap_region_bottom = vol_pred_ohe[n,:,:,step_size[2]:step_size[2]+overlap,:] # Save bottom overlap region for next iteration
+def dice(y_true, y_pred):
+    P = precision(y_true, y_pred)
+    R = recall(y_true, y_pred)
+    dice = 2*(P*R)/(P+R+K.epsilon())
+    return dice
 
-                del overlap_region_top, overlap_region_av, unique_region  
-    	          
-            del vol_pred_ohe
+"""Custom Losses"""
+def weighted_crossentropy(y_true, y_pred, weights):
+	"""Custom loss function - weighted to address class imbalance"""
+	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
+	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
+
+def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
+    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
+    dice_loss = 1-dice(y_true, y_pred)
+    Dice_BCE = (BCE + dice_loss)/2
+    return Dice_BCE
+
+#---------------------------INFERENCE------------------------------------------------------------------------------------------------------------------------
+				
+def predict_segmentation_dask(
+    model,
+    image_path,                 # e.g. "/path/dataset.zarr/image"
+    out_store,                  # e.g. "/path/dataset_pred.zarr" (folder will be created)
+    volume_dims=(64, 64, 64),   # (Z,X,Y)
+    overlap=(16, 16, 16),       # (Z,X,Y) overlap (must be < volume_dims)
+    n_classes=2,                # softmax classes produced by model
+    export_bigtiff=None,        # e.g. "/path/dataset_pred.tif" to export 3D TIFF (optional)
+    preview=False,              # Preview segmentation for every slab of subvolumes processed in the z axis
+    binary_output=False,        # if True: Reverrses one hot encoding to give pixel values = class index; else softmax output for foreground channel only
+    prob_channel=1,             # which channel to export if binary_output=False (for 2-class, 1 is foreground prob)
+):
+    """
+    Sliding-window inference with smooth blending.
+    Writes two Zarr datasets on disk during accumulation: 'sum' and 'wsum'.
+    Final result is written as 'seg' (either class indices or a single-channel probability).
+    Optionally, writes a BigTIFF 3D volume without holding everything in RAM.
+    """
+
+    # Open image using Dask array and check dimensions
+    img = da.from_zarr(image_path) # shape (Z,X,Y) or (Z,X,Y,1)
+    if img.ndim == 4 and img.shape[-1] == 1:
+        img = img[..., 0]
+    assert img.ndim == 3, "Expected (Z,X,Y) image"
     
-    	      
-            # average overlapped region in x axis
-            vol_pred_ohe_av_x = np.zeros((vol_pred_ohe_av_y.shape[0],step_size[1],vol_pred_ohe_av_y.shape[2],vol_pred_ohe_av_y.shape[3]))
-            overlap_region_left = vol_pred_ohe_av_y[:,0:overlap,:,:]
-            if x==0: overlap_region_av = overlap_region_left
-            else: overlap_region_av = (overlap_region_left+overlap_region_right[j])/2
-            unique_region = vol_pred_ohe_av_y[:,overlap:step_size[1],:,:]
-            vol_pred_ohe_av_x[:,0:overlap,:,:] = overlap_region_av
-            vol_pred_ohe_av_x[:,overlap:step_size[1],:,:] = unique_region
-            overlap_region_right[j]=vol_pred_ohe_av_y[:,step_size[1]:step_size[1]+overlap,:,:]
-           
-            del vol_pred_ohe_av_y, overlap_region_left, overlap_region_av, unique_region
+    # Make all dimensions int
+    Z, X, Y = map(int, img.shape)
+    stride = np.array(volume_dims, dtype="int32")-np.array(overlap, dtype="int32")
+    
+    # Check for sensible overlap dimensions
+    if any(stride<0):
+        raise ValueError("overlap must be less than volume_dims on each axis")
+        
+    def auto_pad(img, volume_dims, stride):
+        img_shape = np.array(img.shape)
+        volume_dims = np.array(volume_dims)
+        
+        pad_widths = []
+        new_shape = []
+        
+        for shape_i, dim_i, stride_i in zip(img_shape, volume_dims, stride):
+            # Number of strides needed to cover full image volume
+            target_size = int(np.ceil((shape_i-dim_i)/stride_i)*stride_i+dim_i)
+
+            total_pad = target_size-shape_i
             
-
-            # average overlapped region in z axis
-            vol_pred_ohe_av_z = np.zeros((step_size[0],vol_pred_ohe_av_x.shape[1],vol_pred_ohe_av_x.shape[2],vol_pred_ohe_av_x.shape[3]))
-            overlap_region_front = vol_pred_ohe_av_x[0:overlap,:,:,:]
-            if z==0: overlap_region_av = overlap_region_front
-            else: overlap_region_av = (overlap_region_front+overlap_region_back[j][i])/2 
-            unique_region = vol_pred_ohe_av_x[overlap:step_size[0],:,:,:]
-            vol_pred_ohe_av_z[0:overlap,:,:,:] = overlap_region_av
-            vol_pred_ohe_av_z[overlap:step_size[0],:,:,:] = unique_region
-            overlap_region_back[j][i] = vol_pred_ohe_av_x[step_size[0]:step_size[0]+overlap,:,:,:] # Save back overlap region for next iteration
-            del vol_pred_ohe_av_x, overlap_region_front, overlap_region_av, unique_region
-
+            # Pad must be at least half volume_dims to avoid boundary artefact
+            half = dim_i//2
+            before = max(half, total_pad//2) # pad on either side of image
+            after = max(total_pad-before, half)
+            
+            pad_widths.append((before, after)) # (Before, After) in each dimension
+            new_shape.append(shape_i + before + after)
         
-            if binary_output==True:
-              # reverse one hot encoding
-              class_pred = np.argmax(vol_pred_ohe_av_z,axis=3) # find most probable class for each pixel
-              vol_pred = np.zeros(vol_pred_ohe_av_z.shape[:-1])
-              for i,cls in enumerate(classes): # for each pixel, set the values to that of the corrosponding class
-                vol_pred[class_pred==i] = cls
-    			
-              # add volume to seg_pred array
-              seg_pred[0:min(vol_pred_ohe_av_z.shape[0], volume_dims_temp[0]), x:min((x+vol_pred_ohe_av_z.shape[1]), seg_pred.shape[1]), y:min((y+vol_pred_ohe_av_z.shape[2]),seg_pred.shape[2])] = vol_pred[:volume_dims_temp[0],:volume_dims_temp[1],:(seg_pred.shape[2]-y)]
-              
-            else:
-              # add volume to seg_pred array
-              seg_pred[0:min(vol_pred_ohe_av_z.shape[0], volume_dims_temp[0]), x:min((x+vol_pred_ohe_av_z.shape[1]), seg_pred.shape[1]), y:min((y+vol_pred_ohe_av_z.shape[2]),seg_pred.shape[2])] = vol_pred_ohe_av_z[:volume_dims_temp[0],:volume_dims_temp[1],:(seg_pred.shape[2]-y),1]
-    
-               
-    	# save segmented images from this batch
-        if save_output==True:
-          for im in range (seg_pred.shape[0]):
-            filename = os.path.join(path,data_dir.list_IDs[index]+"_prediction_"+str(z+im+1)+".tif")
-            save_image(seg_pred[im,:,:], filename)
-					
+        padded = da.pad(img, pad_widths, mode='reflect')
+        #print(f"Padded from {img.shape} to {tuple(new_shape)}") #Debugging
+        return padded, pad_widths
+       
+    # Pad image to avoid boundary effects and allow patches to cover whole image
+    img, pad_widths = auto_pad(img, volume_dims, stride)
 
+    # Prepare output Zarr stores
+    # Accumulates weighted sum of softmax outputs, and summed weights from hann filter (for normalising)
+    root = zarr.open(out_store, mode="w")
+    sum_arr = root.create_dataset("sum", shape=(*img.shape, n_classes), chunks=(*volume_dims, n_classes),
+                                  dtype="float32")
+    wsum_arr = root.create_dataset("wsum", shape=(*img.shape, 1), chunks=(*volume_dims, 1),
+                                   dtype="float32")
 
+    # Compute Hann window for blending
+    wz, wx, wy = general_hamming(volume_dims[0],0.75), general_hamming(volume_dims[1],0.75), general_hamming(volume_dims[2],0.75)
+    w_patch = wz[:, None, None] * wx[None, :, None] * wy[None, None, :]
+    w_patch /= (w_patch.max() + 1e-8) # Normalise to max 1
+    w_patch = w_patch.astype(np.float32)[...,None] # (Z,X,Y,1) 
 
-def data_preprocessing(image_filename=None, label_filename=None, downsample_factor=1, pad_array=None):
-	"""# Pre-processing
+    # Compute sliding window coordinates
+    windows = da.lib.stride_tricks.sliding_window_view(img, volume_dims)[::stride[0], 
+                                    ::stride[1], ::stride[2]]
+    #print("windows shape:", windows.shape) #debugging
+
+    # Total patches for progress bar
+    total_patches = windows.shape[0]*windows.shape[1]*windows.shape[2]
+
+    # Preview
+    def plot_preview(original, pred, z, out_store):
+        
+        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+        axs[0].imshow(original, cmap="gray")
+        axs[0].set_title(f"Input z={z}")
+        axs[0].axis("off")
+
+        axs[1].imshow(pred, cmap="viridis")
+        axs[1].set_title(f"Prediction z={z}")
+        axs[1].axis("off")
+        plt.tight_layout()
+        fig.savefig(os.path.join(out_store,'_preview_z'+str(z)+'.png'))
+        
+
+    # Inference step - iterate through windows and blend with weighted sum
+    step_i = 0
+    with tqdm(total=total_patches, desc="Inference", unit="patch") as pbar:
+        for zi in range(windows.shape[0]):
+            # Define position within image (z-axis)
+            z0 = zi * stride[0]
+            z1 = z0 + volume_dims[0]
+            
+            for xi in range(windows.shape[1]):
+                # Define position within image (x-axis)
+                x0 = xi * stride[1]
+                x1 = x0 + volume_dims[1]
+                
+                for yi in range(windows.shape[2]):
+                    # Define position within image (y-axis)
+                    y0 = yi * stride[2]
+                    y1 = y0 + volume_dims[2]
+                    
+                    # Read patch (compute only this slice)
+                    patch = windows[zi, xi, yi].compute().astype(np.float32, copy=False)
+                    patch = patch[None,...,None] # Reshape to (1,Z,X,Y,C)
+
+                    # Predict softmax probability (batch of 1)
+                    pred = model.predict(patch, verbose=0)
+                    pred = pred[0] # pred shape: (1,Z,X,Y,C) -> (Z,X,Y,C)
+
+                    # Add weighted prediciton and weighs to accumlators in correct positions                    
+                    sum_arr[z0:z1, x0:x1, y0:y1, :] += pred * w_patch
+                    wsum_arr[z0:z1, x0:x1, y0:y1, :] += w_patch
+                    
+                    # Update progress bar
+                    step_i += 1
+                    pbar.update(1)
+
+                   
+            if preview:
+                # Normalize current accum/weights to preview
+                z_mid_slice = z0 + (volume_dims[0] // 2)
+                # Read single slice
+                preview_sum = sum_arr[z_mid_slice, :, :, :].astype(np.float32)
+                preview_w = wsum_arr[z_mid_slice, :, :, :].astype(np.float32)
+                # Normalise to accumulated weights, avoid division by zero
+                preview_pred = np.where(preview_w > 0, preview_sum[..., [prob_channel]] / np.maximum(preview_w[..., 0], 1e-8), 0.0)
+                preview_pred = preview_pred[..., 0]  # (X,Y)
+                # Also read the corresponding input slice
+                orig_slice = img[z_mid_slice, :, :].compute()
+                plot_preview(orig_slice, preview_pred, z_mid_slice, out_store)
+                
+                
+    # Crop outputs
+    sum_arr = sum_arr[pad_widths[0][0]:img.shape[0]-pad_widths[0][1],
+                      pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                      pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+    wsum_arr = wsum_arr[pad_widths[0][0]:img.shape[0]-pad_widths[0][1],
+                      pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                      pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+
+    # Normalize and write final zarr
+    # Create output 'seg' dataset
+    if binary_output:
+        # class map (argmax): store as uint8 (or change dtype if you have >255 classes)
+        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
+        # Process chunk-by-chunk to avoid OOM
+        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
+            z0 = zi * stride[0]
+            z1 = z0 + volume_dims[0]
+            
+            # load a slab of weighted sums and weights
+            slab_sum = sum_arr[z0:z1, :, :, :]        # (vz,X,Y,C)
+            slab_w   = wsum_arr[z0:z1, :, :, 0:1]     # (vz,X,Y,1)
+            slab_sum = np.array(slab_sum)             # bring to RAM slab only
+            slab_w   = np.array(slab_w)
+            probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
+            seg[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
+    else:
+        # store forground probability as float32
+        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="float32")
+        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
+            z0 = zi * stride[0]
+            z1 = z0 + volume_dims[0]
+            
+            # load a slab of weighted sums (foreground channel only) and weights
+            slab_sum = sum_arr[z0:z1, :, :, prob_channel:prob_channel+1]   # (vz,X,Y,1)
+            slab_w   = wsum_arr[z0:z1, :, :, 0:1]                          # (vz,X,Y,1)
+            slab_sum = np.array(slab_sum)
+            slab_w   = np.array(slab_w)
+            prob = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)[..., 0]  # (vz,X,Y)
+            seg[z0:z1, :, :] = prob
+            
+    # Delete sum_arr and wsum_arr now that we're finished with them
+    del root["sum"]
+    del root["wsum"]
+
+    # Optional: export BigTIFF 3D, slice-by-slice to handle very large images
+    if export_bigtiff:
+        with tiff.TiffWriter(export_bigtiff, bigtiff=True) as tw:
+            for z in tqdm(range(Z), desc="Export BigTIFF", unit="slice"):
+                seg_slice = np.array(seg[z, :, :])  # bring one 2D slice to RAM
+                tw.write(seg_slice, photometric="minisblack", metadata=None)
+
+    return seg, os.path.join(out_store, "segmentation")
+
+#-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
+
+def data_preprocessing(image_path=None, label_path=None):
+    """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
-        image_filename = image filename (string)
-        label_filename = labels filename (string)
-        downsample_factor = factor by which to downsample in x and y dimensions (int, default 1)
-        pad_array = size to pad image to, should be able to be written as 2^n where n is an integer (int, default 1024)
+    image_path = path to image data (string)
+    label_path = path to labels (string)
     Outputs:
-        img_pad = image data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
-        seg_pad = label data as an np.array, scaled between 0 and 1, downsampled and padded with zeros
-        classes = list of classes present in labels
+    img_pad = image data as an np.array, scaled between 0 and 1
+    seg_pad = label data as an np.array, scaled between 0 and 1
+    classes = list of classes present in labels
     """
-   # Load image
-	print('Loading images from '+str(image_filename))
-	img=io.imread(image_filename)
+    
+    # Load image
+    print('Loading images from '+str(image_path))
+    img=io.imread(image_path)
 
-	if len(img.shape)>3:
-	  print('Image data has more than 3 dimensions. Cropping to first 3 dimensions')
-	  img=img[:,:,:,0]
+    if len(img.shape)==4:
+        print('Image data has dimensions. Cropping to first 3 dimensions')
+        img=img[:,:,:,0]
+    assert img.ndim == 3, "Expected (Z,X,Y) image"
 
-	# Downsampling
-	if downsample_factor >1:
-	  print('Downsampling by a factor of {}'.format(downsample_factor))
-	  img=block_reduce(img, block_size=(1, downsample_factor, downsample_factor), func=np.mean)
-	  
 	# Normalise 
-	print('Rescaling data between 0 and 1')
-	try:
-		img = (img-np.amin(img))/(np.amax(img)-np.amin(img)) # Rescale between 0 and 1
-	except: 
+    print('Rescaling data between 0 and 1')
+    img_min = np.amin(img)
+    denominator = np.amax(img)-img_min
+    try:img = (img-img_min)/denominator # Rescale between 0 and 1
+    except: 
         # break image up into quarters and normalise one chunck at a time
-		quarter=int(img.shape[0]/4)
-		img_min = np.amin(img)
-		denominator = np.amax(img)-img_min
-		for i in range (3):
-			img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
-		img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
-        
-
-	if any(pad is not None for pad in pad_array):
-		print('Padding image array')
-		pad_array = np.array(pad_array) #convert to np array
-		pad_array[pad_array==None] = np.array(img.shape)[pad_array==None] # Replace any 'None' with image dimensions
-		img_padded = np.zeros(pad_array)
-		img_padded[:img.shape[0],:img.shape[1],:img.shape[2]]=img
-		img = img_padded
-		del img_padded
-		print('Shape of padded image array: {}'.format(img.shape))
-	
+        quarter=int(img.shape[0]/4)
+        for i in range (3):
+            img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
+            img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
+    
 	#Repeat for labels is present
-	if label_filename is not None:
-		print('Loading labels from '+str(label_filename))
-		seg=io.imread(label_filename)
-	
-		# Downsampling
-		if downsample_factor >1:
-		  print('Downsampling by a factor of {}'.format(downsample_factor))
-		  seg=block_reduce(seg, block_size=(1, downsample_factor, downsample_factor), func=np.max) #max instead of mean to maintain binary image  
-		  
-		# Normalise 
-		print('Rescaling data between 0 and 1')
-		seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
-		
-		# Pad
-		if any(pad is not None for pad in pad_array):
-		  print('Padding labels array')
-		  seg_padded = np.zeros(pad_array)
-		  seg_padded[:seg.shape[0],:seg.shape[1],:seg.shape[2]]=seg
-		  seg = seg_padded
-		  del seg_padded
-		  print('Shape of padded labels array: {}'.format(seg.shape))
-		
-		# Find the number of unique classes in segmented training set
-		classes = np.unique(seg)
-		
-		return img, seg, classes
-	
-	return img
+    if label_path is not None:
+        print('Loading labels from '+str(label_path))
+        seg=io.imread(label_path)
 
-# SAVE MODEL
-def save_model(model, model_path, filename):
-	"""# Save Model as .json and .h5 (weights)
-    Inputs:
-        model = model object
-        model_path = path for model to be saved to (string)
-        filename = model filename (string)
-    """
-	mfile_new = os.path.join(model_path, filename+'.h5') # file containing weights
-	jsonfile_new = os.path.join(model_path, filename+'.json')
-	print('Saving model')
-	model_json = model.to_json()
-	with open(jsonfile_new, "w") as json_file:
-		json_file.write(model_json)
-		# serialize weights to HDF5
-	model.save_weights(mfile_new)
+        # Normalise 
+        print('Rescaling data between 0 and 1')
+        seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
+        
+        # Find the number of unique classes in segmented training set
+        classes = np.unique(seg)
+		
+        return img, seg, classes
+	
+    return img, None, None
 
-def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2, overlap=None, classes=(0,1), 
-                 save_prediction=False, prediction_filename=None, binary_output=False): 
+def crop_from_labels(labels, data):
+    iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
+    labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index data and labels
+    data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
+    print("Cropped to {}".format(data.shape))
+    
+    return labels, data
+
+def save_as_dask_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
+    # Create header folder if does not exist
+    header_folder=os.path.join(output_path, "headers")
+    if not os.path.exists(header_folder):
+        os.makedirs(header_folder)
+    header_name=os.path.join(header_folder,str(output_name)+"_header")
+    
+    # Convert to dask array and save as zarr
+    data = da.from_array(data, chunks=chunks)
+    data.to_zarr(os.path.join(output_path, output_name))
+    
+    from tUbeNet_classes import DataHeader
+    
+    # Repeat of labels if present
+    if labels is not None: 
+        # Convert to dask array and save as zarr
+        labels = da.from_array(labels, chunks=chunks)
+        labels.to_zarr(os.path.join(output_path, str(output_name)+"_labels"))
+        
+        # Save data header for easy reading in
+        header = DataHeader(ID=output_name, image_dims=labels.shape, 
+                            image_filename=os.path.join(output_path, output_name),
+                            label_filename=os.path.join(output_path, str(output_name)+"_labels"))
+        header.save(header_name)
+    else:
+        # Save data header for easy reading in, with label_filename=None
+        header = DataHeader(ID=output_name, image_dims=data.shape, 
+                            image_filename=os.path.join(output_path, output_name),
+                            label_filename=None)
+        header.save(header_name)
+        
+    return output_path, header_name
+
+#---------------------------EVALUATION----------------------------------------------------------------------
+
+def roc_analysis(model, data_dir, volume_dims=(64,64,64), 
+                 overlap=None, n_classes=2, 
+                 output_path=None, 
+                 binary_output=False): 
+    
     optimal_thresholds = []
     recall = []
     precision = []
-
-    volume_dims_temp=list(volume_dims)#convert from tuple to list for easier re-assignment of elements
+    average_precision = []
     
+    if not overlap:
+        overlap = (volume_dims[0]//2,volume_dims[1]//2,volume_dims[2]//2)
+
     for index in range(0,len(data_dir.list_IDs)):
-        print('Analysing ROC on '+str(data_dir.list_IDs[index])+' data')
-        y_pred_all = np.zeros(data_dir.image_dims[index])
-        y_test_all = np.zeros(data_dir.image_dims[index])                       
-        for k in range (math.ceil(data_dir.image_dims[index][0]/volume_dims[0])):
-            # find z coordinates for batch
-            z = k*volume_dims[0]   
-            for i in range (math.ceil(data_dir.image_dims[index][1]/volume_dims[1])):
-              x = i*volume_dims[1] # x coordinate for batch
-              for j in range(math.ceil(data_dir.image_dims[index][2]/(volume_dims[2]*batch_size))):
-                y = j*batch_size*volume_dims[2] # y coordinate for batch		
-                print('Coordinates: ({},{},{})'.format(z,x,y))
-                # initialise batch and temp volume dimensions
-                X_test = np.zeros((batch_size, *volume_dims))
-                y_test = np.zeros((batch_size, *volume_dims))
-                
-                #Calculate if sub-volume will overflow the data volume, if yes: update temp volume to avoid out of bounds error
-                overspill=np.array((1,1,1))
-                overspill[0]=volume_dims[0]-(data_dir.image_dims[index][0]-z)+1
-                overspill[1]=volume_dims[1]-(data_dir.image_dims[index][1]-x)+1
-                for dim in range (2):
-                    if overspill[dim]>0 and overspill[dim]<volume_dims[dim]:
-                        volume_dims_temp[dim]=volume_dims[dim]-overspill[dim]
-                    else: volume_dims_temp[dim]=volume_dims[dim]
-                
-                for n in range(batch_size):# Generate data sub-volume at coordinates, add to batch
-                    overspill[2] = volume_dims[2]-(data_dir.image_dims[index][2]-(y+n*volume_dims[2]))+1
-                    if overspill[2]>0 and overspill[2]<volume_dims[2]:
-                        volume_dims_temp[2]=volume_dims[2]-overspill[2]
-                    elif overspill[2]>=volume_dims[2]:
-                        break #stop adding to this batch as it has gone out of range of data
-                    else: volume_dims_temp[2]=volume_dims[2]
+        print('Evaluating model on '+str(data_dir.list_IDs[index])+' data')
 
-                    # Load data from file
-                    X_test[n, 0:volume_dims_temp[0], 0:volume_dims_temp[1], 0:volume_dims_temp[2]], y_test[n,0:volume_dims_temp[0], 0:volume_dims_temp[1], 0:volume_dims_temp[2]] = load_volume_from_file(volume_dims=volume_dims_temp, image_dims=data_dir.image_dims[index],
-                                   image_filename=data_dir.image_filenames[index], label_filename=data_dir.label_filenames[index], 
-                                   coords=(z,x,y+n*volume_dims[2]), data_type=data_dir.data_type[index], offset=128)	
+        # Built output name from image filename and output path     
+        dask_name = os.path.join(output_path, str(data_dir.list_IDs[index])+"_prediction")
+        tiff_name = str(dask_name)+".tif"
 
-                # Run prediction
-                X_test=X_test.reshape(*X_test.shape, 1)
-                y_pred=model.predict(X_test,verbose=0)
-               
-                # Add postive class to stack
-                for n in range(y_pred.shape[0]):
-                    # Remove padding if necessary (ie. if volume_dims_temp has been updated to remove overspill)
-                    if volume_dims_temp != volume_dims:
-                        i_xyz = np.where(X_test[n,...]!=0) # find instances of non-zero values in X_test -> indicates real data present (not padding)
-                        if len(i_xyz[0])==0:
-                            continue
-                        max_xyz=np.array((0,0,0))
-                        for dim in range (3): max_xyz[dim]=max(i_xyz[dim])+1 # find max coordinate of real data in each axis
-                        y_test_crop = y_test[n,0:max_xyz[0],0:max_xyz[1],0:max_xyz[2]] # use this to index y_test and y_pred, crop padded volume
-                        y_pred_crop = y_pred[n,0:max_xyz[0],0:max_xyz[1],0:max_xyz[2],:]
-                        
-                        y_pred_all[z:z+y_pred_crop.shape[0], x:x+y_pred_crop.shape[1], y+(n*volume_dims[2]):y+(n*volume_dims[2])+y_pred_crop.shape[2]]=y_pred_crop[...,1]
-                        y_test_all[z:z+y_test_crop.shape[0], x:x+y_test_crop.shape[1], y+(n*volume_dims[2]):y+(n*volume_dims[2])+y_test_crop.shape[2]]=y_test_crop
+        # Predict segmentation
+        y_pred, zarr_path = predict_segmentation_dask(
+            model,
+            data_dir.image_filenames[index],                 
+            dask_name,                  
+            volume_dims=volume_dims,   
+            overlap=overlap,       
+            n_classes=n_classes,
+            export_bigtiff= str(dask_name)+"_raw.tif",
+            preview=False,          
+            binary_output=False, 
+            prob_channel=1,   
+        )
+                
+        # Create 1D numpy array of predicted output (softmax)
+        y_pred1D = da.ravel(y_pred).astype(np.float32)
         
-                    else:                
-                        y_pred_all[z:z+y_pred.shape[1], x:x+y_pred.shape[2], y+(n*volume_dims[2]):y+(n*volume_dims[2])+y_pred.shape[3]]=y_pred[n,...,1]
-                        y_test_all[z:z+y_test.shape[1], x:x+y_test.shape[2], y+(n*volume_dims[2]):y+(n*volume_dims[2])+y_test.shape[3]]=y_test[n,...]
-        
-              
+        # Create 1D numpy array of true labels
+        y_test = da.from_zarr(data_dir.label_filenames[index])
+        y_test1D = da.ravel(y_test).astype(np.float32)
+    
         # ROC Curve and area under curve
-        fpr, tpr, thresholds = roc_curve(np.ravel(y_test_all), np.ravel(y_pred_all))
+        fpr, tpr, thresholds = roc_curve(y_test1D, y_pred1D)
         area_under_curve = auc(fpr, tpr)
-        optimal_idx = np.argmax(tpr - fpr) #calculate Youden's J statistic to find optimal threshold
+        
+        # Calculate Youden's J statistic to find optimal threshold
+        optimal_idx = np.argmax(tpr - fpr)
+        # Report and log recall and precision at optimal threshold
         print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
         optimal_thresholds.append(thresholds[optimal_idx])
         print('Recall at optimal threshold: {}'.format(tpr[optimal_idx]))
@@ -632,34 +445,28 @@ def roc_analysis(model=None, data_dir=None, volume_dims=(64,64,64), batch_size=2
         plt.ylabel('True Positive Rate')
         plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
         plt.legend(loc="lower right")
-        plt.show()
-        fig.savefig(os.path.join(prediction_filename,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
+        fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
         
         # Precision-Recall Curve
         fig, ax = plt.subplots()
-        disp = PrecisionRecallDisplay.from_predictions(np.ravel(y_test_all), np.ravel(y_pred_all), 
-                                                       name='PR Curve', ax=ax, pos_label=1)
+        disp = PrecisionRecallDisplay.from_predictions(np.asarray(y_test1D), np.asarray(y_pred1D), 
+                                                       name='PR Curve', 
+                                                       ax=ax, pos_label=1)
         ax.set_title("Precision-Recall Curve for "+str(data_dir.list_IDs[index])) 
         ax.set_xlim([0.0, 1.0])
         ax.set_ylim([0.0, 1.05])
-        plt.show()
-        fig.savefig(os.path.join(prediction_filename,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
-        print('Average Precision Score: {}'.format(average_precision_score(np.ravel(y_test_all), np.ravel(y_pred_all))))
-
+        fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
         
+        # Report and log average precision
+        average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
+        print('Average Precision Score: {}'.format(average_precision[index]))
+        
+        # Convert to binary with optimal threshold
         if binary_output:
-            binary_pred = np.zeros(y_pred_all.shape)
-            binary_pred[y_pred_all>=thresholds[optimal_idx]] = 1
-            y_pred_all = binary_pred
-        
-        # Save predicted segmentation      
-        if save_prediction:
-            # threshold using optimal threshold
-            #y_pred_all[y_pred_all > optimal_thresholds[index]] = 1 
-            for im in range(y_pred_all.shape[0]):
-                save_image(y_pred_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_pred.tif'))
-                save_image(y_test_all[im,:,:], os.path.join(prediction_filename,str(data_dir.list_IDs[index])+'_'+str(im+1)+'_true.tif'))
-            print('Predicted segmentation saved to {}'.format(prediction_filename))
+            y_pred = np.where(y_pred[...,1]>thresholds[optimal_idx],1,0) 
 
+        # Save as tiff
+        tiff.imwrite(tiff_name, y_pred, photometric="minisblack", metadata=None)     
+        print('Predicted segmentation saved to {}'.format(tiff_name))
 
-    return optimal_thresholds, recall, precision
+    return optimal_thresholds, recall, precision, average_precision

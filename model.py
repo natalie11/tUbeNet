@@ -6,8 +6,8 @@ Created on Wed Jun  8 13:21:04 2022
 """
 #Import libraries
 import os
-import numpy as np
 from functools import partial
+import tUbeNet_functions as tube
 
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model
@@ -30,41 +30,9 @@ K.set_image_data_format('channels_last')
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
   for gpu in physical_devices:
-      tf.config.experimental.set_memory_growth(gpu, True)
+      tf.config.set_memory_growth(gpu, True)
 except:
   pass
-
-
-"""Custom metrics"""
-def precision(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-
-def recall(y_true, y_pred):
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-
-def dice(y_true, y_pred):
-    P = precision(y_true, y_pred)
-    R = recall(y_true, y_pred)
-    dice = 2*(P*R)/(P+R+K.epsilon())
-    return dice
-
-"""Custom Losses"""
-def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
-
-def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
-    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice_loss = 1-dice(y_true, y_pred)
-    Dice_BCE = (BCE + dice_loss)/2
-    return Dice_BCE
 
 
 """Model blocks"""
@@ -188,15 +156,15 @@ class tUbeNet(tf.keras.Model):
         return model
     
     def selectLoss(self, loss_name, class_weights=None):
-        """select loss from list"""
-        if loss_name == 'weighted categorical crossentropy':
-            custom_loss=partial(weighted_crossentropy, weights=class_weights)
+        """select loss from custom losses"""
+        if loss_name == 'WCCE':
+            custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = weighted_crossentropy.__module__
+            custom_loss.__module__ = tube.weighted_crossentropy.__module__
         elif loss_name == 'DICE BCE':
-            custom_loss=partial(DiceBCELoss,smooth=1e-6)
+            custom_loss=partial(tube.DiceBCELoss,smooth=1e-6)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = DiceBCELoss.__module__
+            custom_loss.__module__ = tube.DiceBCELoss.__module__
         elif loss_name == 'focal':
             custom_loss=tf.keras.losses.CategoricalFocalCrossentropy(alpha=0.2, gamma=5)
         else:
