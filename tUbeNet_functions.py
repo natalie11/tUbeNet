@@ -395,7 +395,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
     for index in range(0,len(data_dir.list_IDs)):
         print('Evaluating model on '+str(data_dir.list_IDs[index])+' data')
 
-        # Built output name from image filename and output path     
+        # Build output name from image filename and output path     
         dask_name = os.path.join(output_path, str(data_dir.list_IDs[index])+"_prediction")
         tiff_name = str(dask_name)+".tif"
 
@@ -407,7 +407,6 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             volume_dims=volume_dims,   
             overlap=overlap,       
             n_classes=n_classes,
-            export_bigtiff= str(dask_name)+"_raw.tif",
             preview=False,          
             binary_output=False, 
             prob_channel=1,   
