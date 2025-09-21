@@ -12,7 +12,7 @@ tUbetnet uses Python 3.11 and Tensorflow 2.20. You can create an environment for
 
 ### Option 1: Conda
 First install anaconda or miniconda following the instructions [here](https://www.anaconda.com/docs/getting-started/anaconda/install).
-You can then create a new virtual environment using the .yml file included in this repository by running this command in your command prompt
+You can then create a new virtual environment using the .yml file included in this repository by running this command in your command prompt.
 ```
 # Create environment from YAML
 conda env create -f tubenet_env.yml
@@ -44,12 +44,14 @@ tUbeNet is organized into four callable scripts:
 * test.py → Evaluate a trained model on labeled data (with ROC analysis).
 * predict.py → Run inference on unlabeled data and save segmentations.
 
+Small volumes of OCT-A imaging data (OCTA-Data.tif) and paired manual labels (OCTA-Labels.tif) are provided to enable quick testing of the model to confirm successful installation.
+
 ### Preparing data
 This step converts raw image volumes (.tif/.nii) (and optional binary labels) into Zarr format with header files that can be read by the train/test/predict scripts. You can run this script on an individual image or a folder of images.
 
 The zarr format allows individual chunks of an image to be read from the disk, making processing training and inference much more memory efficient. You can set the chunck size yourself (as below) or use the default size of 64 x 64 x 64 pixels. This script can also optionally crop your images based on the labels provided - creating a subvolume that contains all the labelled vessels while trimming image regions devoid of vessels. Finally, using 'val_fraction' you can optionally chose a proportion of each image volume to reserve for validation. 
 
-With labels 
+With labels (and optional validation data split, cropping):
 ```
 python preprocessing.py \
     --image_directory '\path\to\images' \
@@ -60,7 +62,7 @@ python preprocessing.py \
     --crop 
 ```
 
-Without labels (prediction only)
+Without labels (prediction only):
 ```
 python preprocessing.py \
     --image_directory '\path\to\images' \
@@ -85,7 +87,7 @@ Key arguments:
 ### Training and Fine-tuning
 Run train.py to train from scratch or fine-tune a pretrained model. Training can be run with out without validation data. During training, batches of image subvolumes (64x64x64 pixels) with be generated - the steps_per_epoch argument sets the number of batches generated per training epoch. By providing pre-trained model weights and using the '--fine_tuning' flag, you can fine tune our existing model to your own data. Updated model weights will be saved to the model path provided. Predicted labels and evaluation metrics for the validation data (Receiver Operating Characteristic Curve and Precision Recall Curve - only if validation data was provided) will be saved to the provided output path. 
 
-Train from scratch
+Train from scratch:
 ```
 python train.py \
     --data_headers 'path\to\train\headers' \
@@ -99,7 +101,7 @@ python train.py \
     --lr0 0.0005 
 ```
 
-Fine-tune a pretrained model
+Fine-tune a pretrained model:
 ```
 python train.py \
     --data_headers 'path\to\train\headers' \
@@ -141,7 +143,7 @@ Training logs can be viewed in TensorBoard using ```tensorboard --logdir path\to
 
 ### Testing
 
-Use test.py to evaluate a trained model on labeled test data. This will generate ROC and Precision Recall Curve graphs, as well as labelled images in Zarr format.
+Use test.py to evaluate a trained model on labeled test data. This will generate ROC and Precision Recall Curve graphs, as well as labelled images in tiff and Zarr format.
 
 ```
 python test.py \
