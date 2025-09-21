@@ -8,7 +8,6 @@ Developed by Natalie Holroyd (UCL)
 #Import libraries
 import numpy as np
 import math
-import tUbeNet_functions as tube
 import random
 import pickle
 import os
@@ -18,6 +17,8 @@ import io
 from matplotlib import pyplot as plt
 from scipy.ndimage import rotate, zoom
 import tensorflow as tf
+import dask.array as da
+
 from tensorflow.keras.utils import Sequence, to_categorical #np_utils
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
@@ -43,8 +44,10 @@ class DataDir:
 
 class DataGenerator(Sequence):
 	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
-              dataset_weighting=None, augment=False):
+              dataset_weighting=None, augment=False, vessel_threshold=0.001, **kwargs):
 	    'Initialization'
+	    super().__init__(**kwargs) 
+        
 	    self.volume_dims = volume_dims
 	    self.batch_size = batch_size
 	    self.shuffle = shuffle
@@ -53,6 +56,11 @@ class DataGenerator(Sequence):
 	    self.n_classes = n_classes
 	    self.dataset_weighting = dataset_weighting
 	    self.augment = augment
+	    self.vessel_threshold = vessel_threshold
+        
+        # Open zarr arrays
+	    self._images = [da.from_zarr(p) for p in self.data_dir.image_filenames]
+	    self._labels = [da.from_zarr(p) for p in self.data_dir.label_filenames]
 	    
 	def __len__(self):
 		'Denotes the max number of batches per epoch'
@@ -64,7 +72,6 @@ class DataGenerator(Sequence):
 	
 	def __getitem__(self, index):
 		'Generate one batch of data'
-		# random.choices only available in python 3.6
 		# randomly generate list of IDs for batch, weighted according to given 'dataset_weighting' if not None
 		if len(self.data_dir.list_IDs)>2:
 		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
@@ -74,9 +81,9 @@ class DataGenerator(Sequence):
 		if self.augment: 
 		    self._augmentation(X,y)
 
-		# Reshape to add depth of 1
+		# Reshape to add depth of 1, one hot encode labels
 		X = X.reshape(*X.shape, 1)
-
+		y = to_categorical(y, num_classes=self.n_classes)
 		return X, y
 	    
 	def on_epoch_end(self):
@@ -98,31 +105,39 @@ class DataGenerator(Sequence):
 	    return coords
 		    
 	def __data_generation(self, list_IDs_temp):
-	    'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-	    # Initialization
-	    X = np.empty((self.batch_size, *self.volume_dims))
-	    y = np.empty((self.batch_size, *self.volume_dims))
-	    for i, ID_temp in enumerate(list_IDs_temp):
-		    index=self.data_dir.list_IDs.index(ID_temp)
+		'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
+		# Initialization
+		X = np.empty((self.batch_size, *self.volume_dims))
+		y = np.empty((self.batch_size, *self.volume_dims))
+		for i, ID_temp in enumerate(list_IDs_temp):
+			index=self.data_dir.list_IDs.index(ID_temp)
             
-            # Check offset of the .npy binary file (i.e. bytes before start of array data)
-            offset=np.load(self.data_dir.image_filename[index], mmap_mode='r').offset
+			X_da = self._images[index]
+			y_da = self._labels[index]
             
-		    vessels_present=False
-		    count=0
-		    while vessels_present==False:
-	    	     # Generate random coordinates within dataset
-	    	     count = count+1
-	    	     coords_temp=self.random_coordinates(self.data_dir.image_dims[index], self.data_dir.exclude_region[index])
-                     
-	    	     # Generate data sub-volume at coordinates, add to batch
-	    	     X[i], y[i] = tube.load_volume_from_file(volume_dims=self.volume_dims, image_dims=self.data_dir.image_dims[index],
-                           image_filename=self.data_dir.image_filenames[index], label_filename=self.data_dir.label_filenames[index], 
-                           coords=coords_temp, data_type=self.data_dir.data_type[index], offset=offset)	
-	    	     if (np.count_nonzero(y[i][...,1])/y[i][...,1].size)>0.001 or count>1: #sub-volume must contain at least 0.1% vessels
-	    	        vessels_present=True
-                     
-	    return X, to_categorical(y, num_classes=self.n_classes)
+			vessels_present=False
+			count=0
+			while not vessels_present:
+                #Generate random coordinates within dataset
+				count+=1
+				z0, x0, y0 = self.random_coordinates(self.data_dir.image_dims[index], 
+                                                    self.data_dir.exclude_region[index])
+				dz, dx, dy = self.volume_dims
+                
+                #Load labels at coordinates
+				y_slice = y_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
+				y_slice = y_slice.compute()  # brings just this sub-volume to RAM as np.array
+                
+                #Check fraction of pixels classed as vessel in labels before loading in image data
+				frac = y_slice.astype(bool).mean()
+				if frac>self.vessel_threshold or count>5: vessels_present=True
+				if vessels_present:
+					X_slice = X_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
+					X_slice = X_slice.compute() 
+                        
+			X[i]=X_slice.astype(np.float32)
+			y[i]=y_slice.astype(np.int32)
+		return X, y
        
 	def _augmentation(self, X, y):
 	    # Apply data augmentations to each image/label pair in batch

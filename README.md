@@ -1,84 +1,206 @@
 # tUbeNet
-tUbeNet is a 3D CNN for semantic segmenting of vasculature from 3D grayscale medical images. tUbeNet was trained on varied data from different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training (https://doi.org/10.1101/2023.07.24.550334).
+tUbeNet is a 3D convolutional neural network (CNN) for semantic segmentation of vasculature from 3D grayscale medical images. It was trained on varied data across different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training ([Preprint here](https://doi.org/10.1101/2023.07.24.550334)).
 
-To use this model on your own data, download the model weights here: https://doi.org/10.5522/04/25498603.v1
-To fine-tune the model you your own data, just manually annotate a small portion of your image (the amount needed will vary between datasets) and follow the instructions below. 
-For troubleshooting, tips, or a copy of the original training/test data, please reach out via email: natalie.holroyd.16@ucl.ac.uk
+* Download pretrained weights [here](https://doi.org/10.5522/04/25498603.v2).
+* The original training/test data can be found [here](https://doi.org/10.5522/04/25715604.v1).
+* Contact: natalie.holroyd.16@ucl.ac.uk for questions, troubleshooting and tips!
 
 ![github_fig](https://github.com/natalie11/tUbeNet/assets/30265332/49dde486-2e54-41e1-98cc-f83f6f910688)
 
+## Installation
+tUbetnet uses Python 3.11 and Tensorflow 2.20. You can create an environment for running tUbenet using **pip** or **conda**.
+
+### Option 1: Conda
+First install anaconda or miniconda following the instructions [here](https://www.anaconda.com/docs/getting-started/anaconda/install).
+You can then create a new virtual environment using the .yml file included in this repository by running this command in your command prompt.
+```
+# Create environment from YAML
+conda env create -f tubenet_env.yml
+# Activate environment
+conda activate tubenet
+```
+
+### Option 2: Pip
+Create a virtual environment using venv and then install all the required libraries using pip.
+```
+# Create Environment
+python -m venv '\path\to\environment'
+# Activate Environment
+'\path\to\environment\Scripts\activate.bat'
+# Install requirements
+pip install -r requirements.txt
+```
+
+**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13 (Linux) or >=527.41 (Windows). GPU running is not supported on MacOS.
+
 ## How to use
 
-### Dependancies
-This code is uses python 3.8 and Tensorflow 2.3.0.
+### Workflow
 
-Note for GPU users: You will need Cuda 10.1 and cudnn 7.6 for this version of tensorflow (see Tested build configurations: https://www.tensorflow.org/install/source#gpu). GPUs with the Ampere GPU Architecture are not compatible with this older Cuda version (see https://docs.nvidia.com/cuda/ampere-compatibility-guide/index.html). Tensorflow 2.3.0 does not support GPU on Windows
+tUbeNet is organized into four callable scripts:
+
+* preprocessing.py → Prepares raw data into model-ready Zarr format.
+* train.py → Train a new model or fine-tune the pretrained one.
+* test.py → Evaluate a trained model on labeled data (with ROC analysis).
+* predict.py → Run inference on unlabeled data and save segmentations.
+
+Small volumes of OCT-A imaging data (OCTA-Data.tif) and paired manual labels (OCTA-Labels.tif) are provided to enable quick testing of the model to confirm successful installation.
 
 ### Preparing data
-To prepare data you wish to run a prediction on, use the 'tubeNet_preprocessing.py' script. 
+This step converts raw image volumes (.tif/.nii) (and optional binary labels) into Zarr format with header files that can be read by the train/test/predict scripts. You can run this script on an individual image or a folder of images.
 
-This script will:
-* rescale pixel intensity values between 0 and 1
-* convert image data to a float 32 numpy array 
-* convert labels (if present) to int 8 numpy array
-* downsample data (and labels) by a specified factor (optional)
-* crop background (optional)
-* pad data (optional)
-* save data (and labels) and .npy files
-* create a header file
+The zarr format allows individual chunks of an image to be read from the disk, making processing training and inference much more memory efficient. You can set the chunck size yourself (as below) or use the default size of 64 x 64 x 64 pixels. This script can also optionally crop your images based on the labels provided - creating a subvolume that contains all the labelled vessels while trimming image regions devoid of vessels. Finally, using 'val_fraction' you can optionally chose a proportion of each image volume to reserve for validation. 
 
-To use this script you will need to set the following parameters:
-* downsample_factor - factor by which images are downsampled in x and y dimensions, set to 1 if not downsampling
-* pad_array - size images are padded up to in each dimension (z, x, y), set to None if not padding
-* val_fraction - fraction of data to hold back for validation
-* crop - set to 'True' to crop background containing no labelled vessels, otherwise ‘False’
-* path - path to directory containing data to be processed
-* image_filename - filename of image data
-* label_filename - filename of label data, set to None if not using labels
-* output_path - where .npy files will be saved
-* output_name - an identifying name the processed data will be saved under
+With labels (and optional validation data split, cropping):
+```
+python preprocessing.py \
+    --image_directory '\path\to\images' \
+    --label_directory '\path\to\labels' \
+    --output_path 'path\to\processed' \
+    --chunks 64 \ 
+    --val_fraction 0.2 \ 
+    --crop 
+```
 
-### Using the tubenet_multimodal script 
-Once your data has been prepared, you can use the pre-trained model to predict labels using the 'tubenet_multimodal.py' script, fine-tune the model using your own data, or train a new model from scratch.
-The parameters to set within script are as follows:
+Without labels (prediction only):
+```
+python preprocessing.py \
+    --image_directory '\path\to\images' \
+    --output_path 'path\to\processed' \
+    --chunks 64
+```
 
-*Model parameters*
-* volume_dims - size of subvolume to be passed to CNN (z, x, y) 
-* n_epochs - number of epochs for training CNN
-* steps_per_epoch - total number of steps (batches of samples) to yield from generator before declaring one epoch finished
-* batch_size - batch size 
-* class_weights - relative weighting of background to blood vessel classes, to account for imbalanced classes (int, int)
-* n_classes - number of classes (optimised for 2 classes: background and vessel)
-* dataset_weighting – biases the frequency with which the batch generator will pull for each dataset: weight larger datasets more highly to avoid overfitting to small datasets
+Key arguments:
 
-*Run settings*
-* use_saved_model - use saved model structure and weights (True/False)
-* fine_tuning - prepare model for fine tuning by replacing classifier and freezing shallow layers (True/False)
-* binary_output - save as binary image (True) or softmax output (False)
-* save_model - save model structure and weights after training (True/False)
-* prediction_only - set to True if running a prediction only, False if training
+```--image_directory``` → Path to raw images (file or folder).
 
-*Paths*
-* path - path to directory containing header files for processed (this folder will be generated automatically by the preprocessing script)
-* val_path - path to directory containing header files for processed validation data (optional, set to None if not using validation data)
+```--label_directory``` → Path to labels (optional).
 
-* model_path - path to directory containing model (if using saved model), and where trained model will be saved
-* model_filename - filename of existing model (not including extension). If not using saved model, set to None
-* updated_model_filename - filename under which the trained model will be saved
+```--output_path``` → Where processed Zarr + header files are saved.
 
-* output_path - path were output images will be saved
+```--chunks``` → Patch size for saving (default: 64 64 64).
 
-#### Predicting a segmentation using a pre-trained model
-Ensure the 'prediction_only' and 'use_saved_model' parameters are set to True. Set 'model_path' and 'model_filename' corresponding to the pre-trained model use wish to use. Set 'path' to point to the directory containing the header files for your pre-processed image data (produced by tubenet_preprocessing.py). 
+```--val_fraction``` → Split fraction for validation (0–1).
 
-Run the script and the segmented images will be saved as tifs in 'output_path'.
+```--crop``` → Crop background regions without vessels.
 
-#### Fine-tuning the pre-trained model
-To fine tune the model, run 'tubenet_multimodal.py' with the options 'use_saved_model' and 'fine_tuning' set to True.  Set 'model_path' and 'model_filename' corrosonding to the pre-trained model use wish to fine-tune. Set 'path' to point to the directory containing the header files for your pre-processed image data & labels (produced by tubenet_preprocessing.py). Make sure 'prediction_only' is set to False.
+### Training and Fine-tuning
+Run train.py to train from scratch or fine-tune a pretrained model. Training can be run with out without validation data. During training, batches of image subvolumes (64x64x64 pixels) with be generated - the steps_per_epoch argument sets the number of batches generated per training epoch. By providing pre-trained model weights and using the '--fine_tuning' flag, you can fine tune our existing model to your own data. Updated model weights will be saved to the model path provided. Predicted labels and evaluation metrics for the validation data (Receiver Operating Characteristic Curve and Precision Recall Curve - only if validation data was provided) will be saved to the provided output path. 
 
-When running the script, you should be able to monitor the training progress (accuracy, precision, recall and DICE score) using tensorboard. If you have provided validation data, the script will run a prediction on this validation data and produce a ROC curve.
+Train from scratch:
+```
+python train.py \
+    --data_headers 'path\to\train\headers' \
+    --val_headers 'path\to\test\headers' \
+    --model_path 'path\to\model_output' \
+    --output_path 'path\to\prediction' \
+    --n_epochs 100 \
+    --steps_per_epoch 200 \
+    --batch_size 6 \
+    --loss "DICE BCE" \
+    --lr0 0.0005 
+```
 
-#### Training tUbeNet from scratch
-To train from scratch, run 'tubenet_multimodal.py' with the options 'use_saved_model' and 'fine_tuning' set to False. Set 'path' to point to the directory containing the header files for your pre-processed image data & labels (produced by tubenet_preprocessing.py). Make sure 'prediction_only' is set to False. 
+Fine-tune a pretrained model:
+```
+python train.py \
+    --data_headers 'path\to\train\headers' \
+    --val_headers 'path\to\test\headers' \
+    --model_path 'path\to\model_output' \
+    --model_weights_file 'path\pretrained_model.weights.h5' \
+    --output_path 'path\to\prediction' \
+    --n_epochs 50 \
+    --steps_per_epoch 200 \
+    --fine_tune 
+```
 
-When running the script, you should be able to monitor the training progress (accuracy, precision, recall and DICE score) using tensorboard. If you have provided validation data, the script will run a prediction on this validation data and produce a ROC curve.
+Key arguments:
+
+```--data_headers``` → Folder containing headers for training data (generated from preprocessing).
+
+```--val_headers``` → Folder containing headers for validation data (optional).
+
+```--model_path``` → Where models and logs are saved.
+
+```--model_weights_file``` → Pretrained model weights (optional).
+
+```--n_epochs```, ```--steps_per_epoch```, ```--batch_size``` → Epochs, batches per epoch and batch size respectively.
+
+```--loss``` → Loss function - chose from "DICE BCE" (recommended), "focal", "WCCE" (Weighted Categorical CrossEntropy). See the tubenet preprint for details on loss functions.
+
+```--lr0``` → Initial learning rate.
+
+```--class_weights``` → Weights of background to vessels - only relevant when using Weighted Categorical CrossEntropy loss (WCCE).
+
+```--fine_tune``` → Enables fine-tuning by frezzing the first 2 encoding blocks and replacing the classifier layer.
+
+```--volume_dims``` → Input patch size (default: 64 64 64).
+
+```--attention``` → Enable attention blocks in place of skips (experimental).
+
+#### Monitoring training
+Training logs can be viewed in TensorBoard using ```tensorboard --logdir path\to\model_output\logs```.
+
+### Testing
+
+Use test.py to evaluate a trained model on labeled test data. This will generate ROC and Precision Recall Curve graphs, as well as labelled images in tiff and Zarr format.
+
+```
+python test.py \
+    --data_headers 'path\to\data\headers' \
+    --model_path 'path\pretrained_model.weights.h5' \
+    --output_path 'path\to\prediction' \
+    --volume_dims 64 \
+    --overlap 32 \
+    --binary_output
+```
+
+Key arguments:
+
+```--data_headers``` → Folder containing headers for test data (generated from preprocessing).
+
+```--model_weights_file``` → Trained model weights
+
+```--output_path``` → Folder where predictions and evaluation outputs will be saved
+
+```--volume_dims``` → The size of image chunks passed to the model for inference (default: 64 64 64) Note: this sould match the chunk size passed to the model during training
+
+```--overlap``` → Labels are predicted on overlapping image chunks and averaged (to avoid boundary artefacts). The overlap should be approximately half of the chunk volume, but can be reduced (to speed up inference time) or increased as desired.
+
+```--binary_output``` → Use this flag to save label predictions as binary images. Otherwise, the softmax output from the final model layer with be saved.
+
+### Predicting on Unlabelled Data
+
+Use predict.py for running inference (label predicition) on new data without labels. Predicted labels will be saved in zarr format, and optionally as 3D tiff images. Use the --binary_output flag to save label predictions as binary images. Otherwise, the softmax output from the final model layer with be saved (values between 0 and 1, with values closer to 1 implying higher likelyhood of the pixel belonging to a vessel). The softmax output is often be useful for identifying areas of the image that the model is struggling to classify, and allows you to set your own threshold for classifying vessles.
+
+```
+python predict.py \
+    --data_headers 'path\to\data\headers' \
+    --model_path 'path\pretrained_model.weights.h5' \
+    --output_path 'path\to\prediction' \
+    --tiff_path 'path\to\tiff_outputs' \
+    --volume_dims 64 64 64 \
+    --overlap 32 32 32 \
+    --binary_output \
+    --preview
+```
+
+Key arguments:
+
+```--data_headers``` → Folder containing headers for data (generated from preprocessing).
+
+```--model_weights_file``` → Trained model weights
+
+```--output_path``` → Folder where predictions will be saved in zarr format
+
+```--tiff_path``` → Folder where predictions will be saved as 3D tiff images (optional)
+
+```--volume_dims``` → The size of image chunks passed to the model for inference (default: 64 64 64) Note: this sould match the chunk size passed to the model during training
+
+```--overlap``` → Labels are predicted on overlapping image chunks and averaged (to avoid boundary artefacts). The overlap should be approximately half of the chunk volume, but can be reduced (to speed up inference time) or increased as desired.
+
+```--binary_output``` → Use this flag to save label predictions as binary images. Otherwise, the softmax output from the final model layer with be saved.
+Zarr segmentations in --output_path.
+
+```--preview``` → Use this flag to save prediction previews at regular intervals throughout inference. This is useful for checking the the model prediction is sensible without having to wait for the entire image to be processed.
+
