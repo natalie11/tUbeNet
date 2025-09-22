@@ -67,7 +67,8 @@ def main(args):
         image_path = os.path.join(image_directory, image_filename)
         if label_filename is not None: 
             label_path = os.path.join(label_directory, label_filename)
-        
+        else: label_path = None
+            
         # Run preprocessing
         data, labels, classes = tube.data_preprocessing(image_path=image_path, 
                                                         label_path=label_path)
