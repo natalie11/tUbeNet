@@ -42,7 +42,7 @@ def main(args):
             with open(file, "rb") as f:
                 data_header = pickle.load(f) # Unpickle DataHeader object
             headers.append(data_header) # Add to list of headers
-    except IndexError: print("Unable to load data header files from {data_headers}") 
+    except IndexError: print("Unable to load data header files from {}".format(data_headers))
     
     # Create empty data directory    
     data_dir = DataDir([], image_dims=[], 
@@ -74,7 +74,7 @@ def main(args):
     for i in data_dir.image_filenames:
         # Isolate image filename
         image_directory, image_filename = os.path.split(i.replace('\\','/'))
-        print("Begining Inference on {image_filename}")
+        print("Begining Inference on {}".format(image_filename))
         
         # Create output filenames
         dask_name = os.path.join(output_path,str(image_filename)+"_segmentation")

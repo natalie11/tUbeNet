@@ -18,7 +18,6 @@ from tensorflow.keras.layers import (
 # opimiser
 from tensorflow.keras.optimizers import Adam
 
-
 # import tensor flow
 import tensorflow as tf
 

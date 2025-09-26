@@ -37,7 +37,7 @@ def main(args):
     # Create list of image files
     if os.path.isdir(image_directory):
         # Add all file paths of image_paths
-        image_filenames = [f for f in os.listdir(image_directory) if os.isfile(os.path.join(image_directory, f))]
+        image_filenames = [f for f in os.listdir(image_directory) if os.path.isfile(os.path.join(image_directory, f))]
     elif os.path.isfile(image_directory):
         # If file is given, process this file only
         image_directory, image_filenames = os.path.split(image_directory.replace('\\','/'))
@@ -48,7 +48,7 @@ def main(args):
     if label_directory is not None:
         if os.path.isdir(label_directory):
             # Add all file paths of image_paths
-            label_filenames = [f for f in os.listdir(label_directory) if os.isfile(os.path.join(label_directory, f))]
+            label_filenames = [f for f in os.listdir(label_directory) if os.path.isfile(os.path.join(label_directory, f))]
         elif os.path.isfile(label_directory):
             # If file is given, process this file only (split filename from rest of path)
             label_directory, label_filenames = os.path.split(label_directory.replace('\\','/'))
@@ -153,6 +153,7 @@ if __name__ == "__main__":
                         help="Fraction of data to use for validation (0-1)")
     parser.add_argument("--crop", action='store_true',
                         help="Enable cropping if there are large background sections with no vessels")
+                               
 
     args = parser.parse_args() 
     args.chunks = parse_chunks(args.chunks) #create tuple of values for chunk dimensions

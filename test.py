@@ -64,7 +64,7 @@ def main(args):
     # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
     model = tubenet.load_weights(filename=model_path, 
                                      loss='DICE BCE', 
-                                     metrics=['accuracy', 'recall', 'precision'])
+                                     metrics=['accuracy', 'recall', 'precision', tube.dice])
     
     """ Plot ROC """
     # Evaluate model on data

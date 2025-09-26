@@ -54,12 +54,16 @@ def recall_logical(y_true, y_pred):
 
 # Use when y_treu/ y_pred are keras tensors - for passing to model
 def precision(y_true, y_pred):
+    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
+    y_true = tf.cast(y_true, tf.float32)
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
     predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
     precision = true_positives / (predicted_positives + K.epsilon())
     return precision
 
 def recall(y_true, y_pred):
+    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
+    y_true = tf.cast(y_true, tf.float32)
     true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
     recall = true_positives / (possible_positives + K.epsilon())
@@ -216,19 +220,21 @@ def predict_segmentation_dask(
                     # Update progress bar
                     step_i += 1
                     pbar.update(1)
-
-                   
-            if preview:
+       
+            if preview and z0>0 and z1<img.shape[0]: # Produce preview if flag present AND this is not the first/last slab (avoids printing padded region) 
                 # Normalize current accum/weights to preview
                 z_mid_slice = z0 + (volume_dims[0] // 2)
                 # Read single slice
                 preview_sum = sum_arr[z_mid_slice, :, :, :].astype(np.float32)
                 preview_w = wsum_arr[z_mid_slice, :, :, :].astype(np.float32)
                 # Normalise to accumulated weights, avoid division by zero
-                preview_pred = np.where(preview_w > 0, preview_sum[..., [prob_channel]] / np.maximum(preview_w[..., 0], 1e-8), 0.0)
-                preview_pred = preview_pred[..., 0]  # (X,Y)
+                preview_pred = np.where(preview_w[..., 0] > 0, preview_sum[..., prob_channel] / np.maximum(preview_w[..., 0], 1e-8), 0.0)
+                preview_pred = preview_pred[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]  # Remove padding (X,Y)
                 # Also read the corresponding input slice
                 orig_slice = img[z_mid_slice, :, :].compute()
+                orig_slice = orig_slice[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]] # Remove padding
                 plot_preview(orig_slice, preview_pred, z_mid_slice, out_store)
                 
                 
@@ -286,7 +292,6 @@ def predict_segmentation_dask(
     return seg, os.path.join(out_store, "segmentation")
 
 #-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
-
 def data_preprocessing(image_path=None, label_path=None):
     """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
@@ -302,6 +307,7 @@ def data_preprocessing(image_path=None, label_path=None):
     # Load image
     print('Loading images from '+str(image_path))
     img=io.imread(image_path)
+    print('Size '+str(img.shape))
 
     if len(img.shape)==4:
         print('Image data has dimensions. Cropping to first 3 dimensions')
@@ -314,11 +320,17 @@ def data_preprocessing(image_path=None, label_path=None):
     denominator = np.amax(img)-img_min
     try:img = (img-img_min)/denominator # Rescale between 0 and 1
     except: 
-        # break image up into quarters and normalise one chunck at a time
-        quarter=int(img.shape[0]/4)
-        for i in range (3):
-            img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
+        try:
+            # break image up into quarters and normalise one chunck at a time
+            quarter=int(img.shape[0]/4)
+            for i in range (3):
+                img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
             img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
+        except:
+            sixteenth=int(img.shape[0]/16)
+            for i in range (15):
+                img[i*sixteenth:(i+1)*sixteenth,:,:]=(img[i*sixteenth:(i+1)*sixteenth,:,:]-img_min)/denominator
+            img[15*sixteenth:,:,:]=(img[15*sixteenth:,:,:]-img_min)/denominator
     
 	#Repeat for labels is present
     if label_path is not None:
@@ -333,7 +345,7 @@ def data_preprocessing(image_path=None, label_path=None):
         classes = np.unique(seg)
 		
         return img, seg, classes
-	
+
     return img, None, None
 
 def crop_from_labels(labels, data):
@@ -386,7 +398,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
     
     optimal_thresholds = []
     recall = []
-    precision = []
+    sensitivity = []
     average_precision = []
     
     if not overlap:
@@ -420,18 +432,18 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         y_test1D = da.ravel(y_test).astype(np.float32)
     
         # ROC Curve and area under curve
-        fpr, tpr, thresholds = roc_curve(y_test1D, y_pred1D)
+        fpr, tpr, thresholds = roc_curve(y_test1D, y_pred1D, pos_label=1)
         area_under_curve = auc(fpr, tpr)
         
         # Calculate Youden's J statistic to find optimal threshold
         optimal_idx = np.argmax(tpr - fpr)
-        # Report and log recall and precision at optimal threshold
+        # Report and log recall and sensitivity at optimal threshold
         print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
         optimal_thresholds.append(thresholds[optimal_idx])
         print('Recall at optimal threshold: {}'.format(tpr[optimal_idx]))
         recall.append(tpr[optimal_idx])
-        print('Precision at optimal threshold: {}'.format(1-fpr[optimal_idx]))
-        precision.append(1-fpr[optimal_idx])
+        print('Sensitivity at optimal threshold: {}'.format(1-fpr[optimal_idx]))
+        sensitivity.append(1-fpr[optimal_idx])
 
         # Plot ROC 
         fig = plt.figure()
@@ -468,4 +480,4 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         tiff.imwrite(tiff_name, y_pred, photometric="minisblack", metadata=None)     
         print('Predicted segmentation saved to {}'.format(tiff_name))
 
-    return optimal_thresholds, recall, precision, average_precision
+    return optimal_thresholds, recall, sensitivity, average_precision

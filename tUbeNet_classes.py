@@ -123,7 +123,6 @@ class DataGenerator(Sequence):
 				z0, x0, y0 = self.random_coordinates(self.data_dir.image_dims[index], 
                                                     self.data_dir.exclude_region[index])
 				dz, dx, dy = self.volume_dims
-                
                 #Load labels at coordinates
 				y_slice = y_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
 				y_slice = y_slice.compute()  # brings just this sub-volume to RAM as np.array
@@ -134,7 +133,7 @@ class DataGenerator(Sequence):
 				if vessels_present:
 					X_slice = X_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
 					X_slice = X_slice.compute() 
-                        
+                    
 			X[i]=X_slice.astype(np.float32)
 			y[i]=y_slice.astype(np.int32)
 		return X, y

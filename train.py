@@ -103,14 +103,14 @@ def main(args):
                                      loss=loss, 
                                      class_weights=class_weights, 
                                      learning_rate=lr0, 
-                                     metrics=['accuracy', 'recall', 'precision'],
+                                     metrics=['accuracy', 'recall', 'precision', tube.dice],
                                      freeze_layers=2, fine_tune=fine_tune)
     
     else:
         model = tubenet.create(learning_rate=lr0, 
                                loss=loss, 
                                class_weights=class_weights, 
-                               metrics=['accuracy', 'recall', 'precision'])
+                               metrics=['accuracy', 'recall', 'precision', tube.dice])
     
     
     """ Train and save model """
@@ -128,7 +128,7 @@ def main(args):
     else:
         monitored_metric='loss'
     checkpoint = ModelCheckpoint(filepath, monitor=monitored_metric, verbose=1, save_weights_only=True, save_best_only=True, mode='max')
-    tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=False)
+    tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=True)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
     filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
     metricCallback = MetricDisplayCallback(log_dir=log_dir)
