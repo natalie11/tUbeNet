@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 from skimage import io
-from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay
+from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay, precision_recall_curve, precision_score, recall_score
 import matplotlib.pyplot as plt
 import dask.array as da
 import zarr
@@ -398,7 +398,8 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
     
     optimal_thresholds = []
     recall = []
-    sensitivity = []
+    precision = []
+    dice = []
     average_precision = []
     
     if not overlap:
@@ -432,19 +433,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         y_test1D = da.ravel(y_test).astype(np.float32)
     
         # ROC Curve and area under curve
-        fpr, tpr, thresholds = roc_curve(y_test1D, y_pred1D, pos_label=1)
+        fpr, tpr, thresholds_roc = roc_curve(y_test1D, y_pred1D, pos_label=1)
         area_under_curve = auc(fpr, tpr)
         
-        # Calculate Youden's J statistic to find optimal threshold
-        optimal_idx = np.argmax(tpr - fpr)
-        # Report and log recall and sensitivity at optimal threshold
-        print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
-        optimal_thresholds.append(thresholds[optimal_idx])
-        print('Recall at optimal threshold: {}'.format(tpr[optimal_idx]))
-        recall.append(tpr[optimal_idx])
-        print('Sensitivity at optimal threshold: {}'.format(1-fpr[optimal_idx]))
-        sensitivity.append(1-fpr[optimal_idx])
-
         # Plot ROC 
         fig = plt.figure()
         plt.plot(fpr, tpr, color='darkorange',
@@ -468,7 +459,19 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         ax.set_ylim([0.0, 1.05])
         fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
         
-        # Report and log average precision
+        # Report and log DICE and average precision
+        p, r, thresholds = precision_recall_curve(np.asarray(y_test1D), np.asarray(y_pred1D))
+        f1 = 2*p*r/(p+r)
+        optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
+        
+        print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
+        optimal_thresholds.append(thresholds[optimal_idx])
+        print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
+        recall.append(r[optimal_idx])
+        print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
+        precision.append(p[optimal_idx])
+        print('DICE Score: {}'.format(f1[optimal_idx]))
+        
         average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
         print('Average Precision Score: {}'.format(average_precision[index]))
         
@@ -480,4 +483,4 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         tiff.imwrite(tiff_name, y_pred, photometric="minisblack", metadata=None)     
         print('Predicted segmentation saved to {}'.format(tiff_name))
 
-    return optimal_thresholds, recall, sensitivity, average_precision
+    return optimal_thresholds, recall, precision, average_precision

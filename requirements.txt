@@ -4,6 +4,7 @@ numpy>=2.3.0
 scipy>=1.16.0
 scikit-learn>=1.7.0
 scikit-image>=0.25.2
+simpleitk>=2.5.0
 matplotlib>=3.10.0
 nibabel>=5.3.0
 dask>=2025.7.0
