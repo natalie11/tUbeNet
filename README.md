@@ -32,7 +32,7 @@ python -m venv '\path\to\environment'
 pip install -r requirements.txt
 ```
 
-**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13 (Linux) or >=527.41 (Windows). GPU running is not supported on MacOS. On memory useage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per \numproduct{64x64x64} volume when run on a single GPU.
+**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13 (Linux) or >=527.41 (Windows). GPU running is not supported on MacOS. On memory usage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per \numproduct{64x64x64} volume when run on a single GPU.
 
 ## How to use
 
