@@ -356,7 +356,7 @@ def crop_from_labels(labels, data):
     
     return labels, data
 
-def save_as_dask_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
+def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
     # Create header folder if does not exist
     header_folder=os.path.join(output_path, "headers")
     if not os.path.exists(header_folder):
@@ -399,7 +399,6 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
     optimal_thresholds = []
     recall = []
     precision = []
-    dice = []
     average_precision = []
     
     if not overlap:
@@ -433,7 +432,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         y_test1D = da.ravel(y_test).astype(np.float32)
     
         # ROC Curve and area under curve
-        fpr, tpr, thresholds_roc = roc_curve(y_test1D, y_pred1D, pos_label=1)
+        fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
         area_under_curve = auc(fpr, tpr)
         
         # Plot ROC 
@@ -449,18 +448,22 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         plt.legend(loc="lower right")
         fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
         
-        # Precision-Recall Curve
-        fig, ax = plt.subplots()
-        disp = PrecisionRecallDisplay.from_predictions(np.asarray(y_test1D), np.asarray(y_pred1D), 
-                                                       name='PR Curve', 
-                                                       ax=ax, pos_label=1)
-        ax.set_title("Precision-Recall Curve for "+str(data_dir.list_IDs[index])) 
-        ax.set_xlim([0.0, 1.0])
-        ax.set_ylim([0.0, 1.05])
+        # Precision-Recall Curve      
+        # Report and log DICE and average precision
+        p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
+        average_precision = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
+        
+        fig = plt.figure()
+        plt.plot(r, p, color='darkorange',
+                lw=2, label='PR curve (AP = %0.5f)' % average_precision)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title('Precision Recall curve - '+str(data_dir.list_IDs[index]))
+        plt.legend(loc="lower right")
         fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
         
-        # Report and log DICE and average precision
-        p, r, thresholds = precision_recall_curve(np.asarray(y_test1D), np.asarray(y_pred1D))
         f1 = 2*p*r/(p+r)
         optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
         
@@ -471,10 +474,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
         precision.append(p[optimal_idx])
         print('DICE Score: {}'.format(f1[optimal_idx]))
-        
-        average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
         print('Average Precision Score: {}'.format(average_precision[index]))
-        
+        average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
+                
         # Convert to binary with optimal threshold
         if binary_output:
             y_pred = np.where(y_pred[...,1]>thresholds[optimal_idx],1,0) 
