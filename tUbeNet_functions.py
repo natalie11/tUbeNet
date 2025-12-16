@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 from skimage import io
-from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay, precision_recall_curve, precision_score, recall_score
+from sklearn.metrics import roc_curve, auc, average_precision_score, precision_recall_curve
 import matplotlib.pyplot as plt
 import dask.array as da
 import zarr
@@ -306,40 +306,28 @@ def data_preprocessing(image_path=None, label_path=None):
     
     # Load image
     print('Loading images from '+str(image_path))
-    img=io.imread(image_path)
+    img=da.image.imread(image_path)
     print('Size '+str(img.shape))
 
     if len(img.shape)==4:
         print('Image data has dimensions. Cropping to first 3 dimensions')
         img=img[:,:,:,0]
     assert img.ndim == 3, "Expected (Z,X,Y) image"
-
-	# Normalise 
+    
+    # Normalise 
     print('Rescaling data between 0 and 1')
-    img_min = np.amin(img)
-    denominator = np.amax(img)-img_min
-    try:img = (img-img_min)/denominator # Rescale between 0 and 1
-    except: 
-        try:
-            # break image up into quarters and normalise one chunck at a time
-            quarter=int(img.shape[0]/4)
-            for i in range (3):
-                img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
-            img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
-        except:
-            sixteenth=int(img.shape[0]/16)
-            for i in range (15):
-                img[i*sixteenth:(i+1)*sixteenth,:,:]=(img[i*sixteenth:(i+1)*sixteenth,:,:]-img_min)/denominator
-            img[15*sixteenth:,:,:]=(img[15*sixteenth:,:,:]-img_min)/denominator
+    img_min = da.min(img)
+    denominator = da.nanmax(img)-img_min 
+    img = (img-img_min)/denominator # Rescale between 0 and 1
+    
+    # Set data type
+    img = img.astype('float32')
     
 	#Repeat for labels is present
     if label_path is not None:
         print('Loading labels from '+str(label_path))
-        seg=io.imread(label_path)
-
-        # Normalise 
-        print('Rescaling data between 0 and 1')
-        seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
+        seg = da.image.imread(label_path)
+        seg = seg.astype('int16')
         
         # Find the number of unique classes in segmented training set
         classes = np.unique(seg)
@@ -348,31 +336,63 @@ def data_preprocessing(image_path=None, label_path=None):
 
     return img, None, None
 
+def list_image_files(directory):
+    """ Lists files in a directory. 
+    If given a path to a single file - splits the directory path from the filename.
+    Returns directory path and list of filename."""
+    if os.path.isdir(directory):
+        # Add all file paths of image_paths
+        image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    elif os.path.isfile(directory):
+        # If file is given, process this file only
+        image_directory, image_filenames = os.path.split(directory.replace('\\','/'))
+        image_filenames = [image_filenames]
+    else: return None, None
+    
+    return image_directory, image_filenames
+
 def crop_from_labels(labels, data):
-    iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
+    """Crops 3D dask array based on labels.
+    Returns a 3D dask array.""" 
+    iz, ix, iy = da.nonzero(labels) # find instances of non-zero values in X_test along axis 1
     labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index data and labels
     data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
     print("Cropped to {}".format(data.shape))
     
     return labels, data
 
+def split_train_test(labels, data, val_fraction):
+    """"Splits paired images and labels into training and validation sets given a validation fraction.
+    Takes data and labels as dask arrays."""
+    n_training_imgs = int(data.shape[0]-da.floor(data.shape[0]*val_fraction))
+            
+    train_data = data[0:n_training_imgs,...]
+    train_labels = labels[0:n_training_imgs,...]
+            
+    test_data = data[n_training_imgs:,...]
+    test_labels = labels[n_training_imgs:,...]
+    
+    return train_data, train_labels, test_data, test_labels
+            
 def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
+    """"Data (and optionally labels) are saved in chunked zarr format.
+    A data header is created to record image shape, ID and path for data/labels."""
     # Create header folder if does not exist
     header_folder=os.path.join(output_path, "headers")
     if not os.path.exists(header_folder):
         os.makedirs(header_folder)
     header_name=os.path.join(header_folder,str(output_name)+"_header")
     
-    # Convert to dask array and save as zarr
-    data = da.from_array(data, chunks=chunks)
+    # Rechunk dask array and save as zarr
+    data = data.rechunk(chunks)
     data.to_zarr(os.path.join(output_path, output_name))
     
     from tUbeNet_classes import DataHeader
     
     # Repeat of labels if present
     if labels is not None: 
-        # Convert to dask array and save as zarr
-        labels = da.from_array(labels, chunks=chunks)
+        # Rechunk dask array and save as zarr
+        labels = labels.rechunk(chunks)
         labels.to_zarr(os.path.join(output_path, str(output_name)+"_labels"))
         
         # Save data header for easy reading in
@@ -395,7 +415,10 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
                  overlap=None, n_classes=2, 
                  output_path=None, 
                  binary_output=False): 
-    
+    """"Plots ROC Curve and Precision-Recall Curve for paired 
+    ground truth labels and non-thresholded predictions (e.g. softmax output).
+    Calculates DICE score, Area under ROC, Average Precision and optimal threshold.
+    Optionally saves tiff image of predicted labels."""
     optimal_thresholds = []
     recall = []
     precision = []
@@ -467,7 +490,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         f1 = 2*p*r/(p+r)
         optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
         
-        print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
+        print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
         optimal_thresholds.append(thresholds[optimal_idx])
         print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
         recall.append(r[optimal_idx])

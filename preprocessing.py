@@ -12,18 +12,6 @@ import numpy as np
 import tUbeNet_functions as tube
 import argparse
 
-def list_image_files(directory):
-    if os.path.isdir(directory):
-        # Add all file paths of image_paths
-        image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-    elif os.path.isfile(directory):
-        # If file is given, process this file only
-        image_directory, image_filenames = os.path.split(directory.replace('\\','/'))
-        image_filenames = [image_filenames]
-    else: return None, None
-    
-    return image_directory, image_filenames
-
 def main(args):
     #----------------------------------------------------------------------------------------------------------------------------------------------
     """Set hard-coded parameters and file paths:"""
@@ -39,12 +27,12 @@ def main(args):
         
     #----------------------------------------------------------------------------------------------------------------------------------------------
     # Create list of image files
-    image_directory, image_filenames = list_image_files(image_directory) 
+    image_directory, image_filenames = tube.list_image_files(image_directory) 
     if image_directory==None: raise ValueError('Image directory could not be found')
     
     # Create list of label files
     if label_directory is not None:
-        label_directory, label_filenames = list_image_files(label_directory)
+        label_directory, label_filenames = tube.list_image_files(label_directory)
         if label_directory==None: 
             raise ValueError('A label directory was provided but could not be found. Set label_directory to None if not using labels.')
         assert len(image_filenames)==len(label_filenames), "Expected same number of image and label files. Set label_directory to None if not using labels."
@@ -63,12 +51,7 @@ def main(args):
         # Run preprocessing
         data, labels, classes = tube.data_preprocessing(image_path=image_path, 
                                                         label_path=label_path)
-        
-        # Set data type
-        data = data.astype('float32')
-        if labels is not None:
-            labels = labels.astype('int16')
-        
+
         # Crop
         if crop and labels is not None:
             labels, data = tube.crop_from_labels(labels, data)
@@ -76,13 +59,7 @@ def main(args):
         # Split into test and train
         if val_fraction > 0 and labels is not None:
             
-            n_training_imgs = int(data.shape[0]-np.floor(data.shape[0]*val_fraction))
-            
-            train_data = data[0:n_training_imgs,...]
-            train_labels = labels[0:n_training_imgs,...]
-            
-            test_data = data[n_training_imgs:,...]
-            test_labels = labels[n_training_imgs:,...]
+            train_data, train_labels, test_data, test_labels = tube.split_test_train(labels, data, val_fraction)
             
             # Create folders
             train_folder = os.path.join(output_path,"train")
