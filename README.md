@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/187050295.svg)](https://doi.org/10.5281/zenodo.15683547) [![DOI:10.1093/biomethods/bpaf087](http://img.shields.io/badge/DOI-10.1101/2021.01.08.425840-B31B1B.svg)]([https://doi.org/10.1101/2023.07.24.550334](https://doi.org/10.1093/biomethods/bpaf087)) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DOI](https://zenodo.org/badge/187050295.svg)](https://doi.org/10.5281/zenodo.15683547) [![DOI](https://img.shields.io/badge/DOI-10.1093%2Fbiomethods%2Fbpaf087-blue)](https://doi.org/10.1093/biomethods/bpaf087) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 # tUbeNet
 tUbeNet is a 3D convolutional neural network (CNN) for semantic segmentation of vasculature from 3D grayscale medical images. It was trained on varied data across different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training ([Paper here](https://doi.org/10.1093/biomethods/bpaf087)).
 
