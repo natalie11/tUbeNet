@@ -32,9 +32,9 @@ python -m venv '\path\to\environment'
 pip install -r requirements.txt
 ```
 
-**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13. GPU running is not supported on Windows or MacOS. On memory usage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per \numproduct{64x64x64} volume when run on a single GPU.
+**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13. On memory usage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per 64x64x64 volume when run on a single GPU.
 
-**Note for Windows/ MacOS users:** TensorFlow no longer supports GPU usage on Windows or Mac. You can still run tUbnet with CPU only - just make sure you DELETE the Nvidia packaged from requirements.txt / tubenet_env.yml before installing. Or see [tensorflow's website](https://www.tensorflow.org/install/pip#windows-wsl2) for instructions on using Windows Subsystem for Linux (WSL) to allow GPU utilization on a Windows machine. 
+**Note for Windows/ MacOS users:** TensorFlow no longer supports GPU usage on Windows or Mac. You can still run tUbnet with CPU only - just make sure you DELETE the Nvidia packages from requirements.txt / tubenet_env.yml before installing. Or see [tensorflow's website](https://www.tensorflow.org/install/pip#windows-wsl2) for instructions on using Windows Subsystem for Linux (WSL) to allow GPU utilization on a Windows machine. 
 
 ## How to use
 
