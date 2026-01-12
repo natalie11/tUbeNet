@@ -358,8 +358,8 @@ def crop_from_labels(labels, data):
     """Crops 3D dask array based on labels.
     Returns a 3D dask array.""" 
     iz, ix, iy = da.nonzero(labels) # find instances of non-zero values in X_test along axis 1
-    labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index data and labels
-    data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
+    labels = labels[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1] # use this to index data and labels
+    data = data[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1]
     print("Cropped to {}".format(data.shape))
     
     return labels, data

@@ -60,7 +60,7 @@ def main(args):
         # Split into test and train
         if val_fraction > 0 and labels is not None:
             
-            train_data, train_labels, test_data, test_labels = tube.split_test_train(labels, data, val_fraction)
+            train_data, train_labels, test_data, test_labels = tube.split_train_test(labels, data, val_fraction)
             
             # Create folders
             train_folder = os.path.join(output_path,"train")
