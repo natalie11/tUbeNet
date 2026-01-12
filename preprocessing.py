@@ -50,7 +50,8 @@ def main(args):
             
         # Run preprocessing
         data, labels, classes = tube.data_preprocessing(image_path=image_path, 
-                                                        label_path=label_path)
+                                                        label_path=label_path,
+                                                        chunks=chunks)
 
         # Crop
         if crop and labels is not None:

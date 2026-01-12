@@ -292,7 +292,7 @@ def predict_segmentation_dask(
     return seg, os.path.join(out_store, "segmentation")
 
 #-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
-def data_preprocessing(image_path=None, label_path=None):
+def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
     """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -306,7 +306,8 @@ def data_preprocessing(image_path=None, label_path=None):
     
     # Load image
     print('Loading images from '+str(image_path))
-    img=da.image.imread(image_path)
+    img=io.imread(image_path)
+    img=da.from_array(img,chunks=chunks)
     print('Size '+str(img.shape))
 
     if len(img.shape)==4:
@@ -326,7 +327,8 @@ def data_preprocessing(image_path=None, label_path=None):
 	#Repeat for labels is present
     if label_path is not None:
         print('Loading labels from '+str(label_path))
-        seg = da.image.imread(label_path)
+        seg = io.imread(label_path)
+        seg = da.from_array(seg,chunks=chunks)
         seg = seg.astype('int16')
         
         # Find the number of unique classes in segmented training set
@@ -347,7 +349,8 @@ def list_image_files(directory):
         # If file is given, process this file only
         image_directory, image_filenames = os.path.split(directory.replace('\\','/'))
         image_filenames = [image_filenames]
-    else: return None, None
+    else:
+        return None, None
     
     return image_directory, image_filenames
 
