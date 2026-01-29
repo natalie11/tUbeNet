@@ -8,7 +8,6 @@ Developed by Natalie Holroyd (UCL)
 
 #Import libraries
 import os
-import numpy as np
 import tUbeNet_functions as tube
 import argparse
 
@@ -49,7 +48,7 @@ def main(args):
         else: label_path = None
             
         # Run preprocessing
-        data, labels, classes = tube.data_preprocessing(image_path=image_path, 
+        data, labels = tube.data_preprocessing(image_path=image_path, 
                                                         label_path=label_path,
                                                         chunks=chunks)
 

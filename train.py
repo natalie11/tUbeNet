@@ -16,6 +16,7 @@ from model import tUbeNet
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
+from tUbeNet_metrics import MacroDice
 
 def main(args):
     """Set parameters and file paths:"""
@@ -28,7 +29,7 @@ def main(args):
     loss = args.loss
     lr0 = args.lr0
     class_weights = args.class_weights
-    n_classes = 2 #TO DO expand to handel multi-class case
+    n_classes = args.n_classes #TO DO expand to handel multi-class case
     
     # Training and prediction options
     fine_tune = args.fine_tune  
@@ -110,7 +111,7 @@ def main(args):
         model = tubenet.create(learning_rate=lr0, 
                                loss=loss, 
                                class_weights=class_weights, 
-                               metrics=['accuracy', 'recall', 'precision', tube.dice])
+                               metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)])
     
     
     """ Train and save model """
@@ -237,8 +238,10 @@ if __name__ == "__main__":
                         help="Loss function.")
     parser.add_argument("--lr0", type=float, default=1e-3,
                         help="Initial learning rate.")
-    parser.add_argument("--class_weights", type=float, nargs=2, default=[1.0, 1.0],
-                        help="Relative class weights (background, vessels).")
+    parser.add_argument("--class_weights", type=float, nargs='+', default=None,
+                        help="Relative class weights given as a list (e.g. background, vessels -> (0, 1)).")
+    parser.add_argument("--n_classes", type=int, default=2,
+                        help="Number of classes to predict. Ensure this is the same for all data included in training.")
     parser.add_argument("--no_augment", action="store_false",
                         help="Disable data augmentation.")
     parser.add_argument("--attention", action="store_true",

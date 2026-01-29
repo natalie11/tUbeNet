@@ -31,61 +31,9 @@ try:
       tf.config.experimental.set_memory_growth(gpu, True)
 except:
   pass
-
-
-#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-"""Custom metrics"""
-# Use when y_true/y_pred are np arrays rather than keras tensors
-def precision_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false positive
-	FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
-	precision1=TP/(TP+FP)
-	return precision1
-
-def recall_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false negative
-	FN = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,0)))
-	recall1=TP/(TP+FN)
-	return recall1
-
-# Use when y_treu/ y_pred are keras tensors - for passing to model
-def precision(y_true, y_pred):
-    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
-    y_true = tf.cast(y_true, tf.float32)
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-
-def recall(y_true, y_pred):
-    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
-    y_true = tf.cast(y_true, tf.float32)
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-
-def dice(y_true, y_pred):
-    P = precision(y_true, y_pred)
-    R = recall(y_true, y_pred)
-    dice = 2*(P*R)/(P+R+K.epsilon())
-    return dice
-
-"""Custom Losses"""
-def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
-
-def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
-    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice_loss = 1-dice(y_true, y_pred)
-    Dice_BCE = (BCE + dice_loss)/2
-    return Dice_BCE
+tf.config.optimizer.set_experimental_options({
+    "remapping": False
+})
 
 #---------------------------INFERENCE------------------------------------------------------------------------------------------------------------------------
 				
@@ -98,13 +46,11 @@ def predict_segmentation_dask(
     n_classes=2,                # softmax classes produced by model
     export_bigtiff=None,        # e.g. "/path/dataset_pred.tif" to export 3D TIFF (optional)
     preview=False,              # Preview segmentation for every slab of subvolumes processed in the z axis
-    binary_output=False,        # if True: Reverrses one hot encoding to give pixel values = class index; else softmax output for foreground channel only
-    prob_channel=1,             # which channel to export if binary_output=False (for 2-class, 1 is foreground prob)
 ):
     """
     Sliding-window inference with smooth blending.
     Writes two Zarr datasets on disk during accumulation: 'sum' and 'wsum'.
-    Final result is written as 'seg' (either class indices or a single-channel probability).
+    Final result is written as 'labels' and 'softmax'.
     Optionally, writes a BigTIFF 3D volume without holding everything in RAM.
     """
 
@@ -227,10 +173,20 @@ def predict_segmentation_dask(
                 # Read single slice
                 preview_sum = sum_arr[z_mid_slice, :, :, :].astype(np.float32)
                 preview_w = wsum_arr[z_mid_slice, :, :, :].astype(np.float32)
-                # Normalise to accumulated weights, avoid division by zero
-                preview_pred = np.where(preview_w[..., 0] > 0, preview_sum[..., prob_channel] / np.maximum(preview_w[..., 0], 1e-8), 0.0)
+                
+                # Normalise to accumulated weights, avoid division by zero. preview_pred shape is (X Y C).
+                preview_pred = np.where(preview_w > 0, preview_sum/ np.maximum(preview_w, 1e-8), 0.0)
+                
+                # If n_classes>2 reverse OHE. otherwise print softmax output for foreground class
+                if n_classes >2:
+                    preview_pred = np.argmax(preview_pred, axis=-1)
+                else:
+                    preview_pred = preview_pred[...,1]
+                    
+                # Remove padding. Preview_pred shape now (X, Y)
                 preview_pred = preview_pred[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
-                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]  # Remove padding (X,Y)
+                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+                
                 # Also read the corresponding input slice
                 orig_slice = img[z_mid_slice, :, :].compute()
                 orig_slice = orig_slice[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
@@ -247,37 +203,25 @@ def predict_segmentation_dask(
                       pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
 
     # Normalize and write final zarr
-    # Create output 'seg' dataset
-    if binary_output:
-        # class map (argmax): store as uint8 (or change dtype if you have >255 classes)
-        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
-        # Process chunk-by-chunk to avoid OOM
-        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
-            z0 = zi * stride[0]
-            z1 = z0 + volume_dims[0]
-            
-            # load a slab of weighted sums and weights
-            slab_sum = sum_arr[z0:z1, :, :, :]        # (vz,X,Y,C)
-            slab_w   = wsum_arr[z0:z1, :, :, 0:1]     # (vz,X,Y,1)
-            slab_sum = np.array(slab_sum)             # bring to RAM slab only
-            slab_w   = np.array(slab_w)
-            probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
-            seg[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
-    else:
-        # store forground probability as float32
-        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="float32")
-        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
-            z0 = zi * stride[0]
-            z1 = z0 + volume_dims[0]
-            
-            # load a slab of weighted sums (foreground channel only) and weights
-            slab_sum = sum_arr[z0:z1, :, :, prob_channel:prob_channel+1]   # (vz,X,Y,1)
-            slab_w   = wsum_arr[z0:z1, :, :, 0:1]                          # (vz,X,Y,1)
-            slab_sum = np.array(slab_sum)
-            slab_w   = np.array(slab_w)
-            prob = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)[..., 0]  # (vz,X,Y)
-            seg[z0:z1, :, :] = prob
-            
+    # Create output store
+    labels = root.create_dataset("labels", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
+    softmax = root.create_dataset("softmax", shape=(Z, X, Y, n_classes), chunks=(*volume_dims, n_classes), dtype="float32")
+    
+    # Process chunk-by-chunk to avoid OOM
+    for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
+        z0 = zi * stride[0]
+        z1 = z0 + volume_dims[0]
+        
+        # load a slab of weighted sums and weights
+        slab_sum = sum_arr[z0:z1, :, :, :]        # (vz,X,Y,C)
+        slab_w   = wsum_arr[z0:z1, :, :, 0:1]     # (vz,X,Y,1)
+        slab_sum = np.array(slab_sum)             # bring to RAM slab only
+        slab_w   = np.array(slab_w)
+        probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
+        
+        softmax[z0:z1, :, :, :]  =  probs      
+        labels[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
+
     # Delete sum_arr and wsum_arr now that we're finished with them
     del root["sum"]
     del root["wsum"]
@@ -286,10 +230,10 @@ def predict_segmentation_dask(
     if export_bigtiff:
         with tiff.TiffWriter(export_bigtiff, bigtiff=True) as tw:
             for z in tqdm(range(Z), desc="Export BigTIFF", unit="slice"):
-                seg_slice = np.array(seg[z, :, :])  # bring one 2D slice to RAM
+                seg_slice = np.array(labels[z, :, :])  # bring one 2D slice to RAM
                 tw.write(seg_slice, photometric="minisblack", metadata=None)
 
-    return seg, os.path.join(out_store, "segmentation")
+    return softmax, os.path.join(out_store, "segmentation")
 
 #-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
 def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
@@ -329,14 +273,25 @@ def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
         print('Loading labels from '+str(label_path))
         seg = io.imread(label_path)
         seg = da.from_array(seg,chunks=chunks)
-        seg = seg.astype('int16')
-        
-        # Find the number of unique classes in segmented training set
-        classes = np.unique(seg)
-		
-        return img, seg, classes
 
-    return img, None, None
+        # Find the number of unique classes in segmented training set
+        classes = da.unique(seg).compute()
+        
+        assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
+        print('Labels processed with classes '+str(classes))
+        
+        # # TO DO - add check for non-integer classes
+        # # Map classes to integer label values starting at 0
+        # mapping = {old: new for new, old in enumerate(classes)}
+        # seg_mapped = da.zeros_like(seg, dtype=np.int32)
+        # for old, new in mapping.items():
+        #     seg_mapped[seg==old] = new
+        
+        seg = seg.astype('int16')            
+           		
+        return img, seg
+
+    return img, None
 
 def list_image_files(directory):
     """ Lists files in a directory. 
@@ -416,8 +371,7 @@ def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, ch
 
 def roc_analysis(model, data_dir, volume_dims=(64,64,64), 
                  overlap=None, n_classes=2, 
-                 output_path=None, 
-                 binary_output=False): 
+                 output_path=None): 
     """"Plots ROC Curve and Precision-Recall Curve for paired 
     ground truth labels and non-thresholded predictions (e.g. softmax output).
     Calculates DICE score, Area under ROC, Average Precision and optimal threshold.
@@ -441,14 +395,14 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         y_pred, zarr_path = predict_segmentation_dask(
             model,
             data_dir.image_filenames[index],                 
-            dask_name,                  
+            dask_name,              
             volume_dims=volume_dims,   
             overlap=overlap,       
             n_classes=n_classes,
-            preview=False,          
-            binary_output=False, 
-            prob_channel=1,   
+            preview=False  
         )
+        
+        y_pred = da.array(y_pred)
                 
         # Create 1D numpy array of predicted output (softmax)
         y_pred1D = da.ravel(y_pred).astype(np.float32)
@@ -456,59 +410,74 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         # Create 1D numpy array of true labels
         y_test = da.from_zarr(data_dir.label_filenames[index])
         y_test1D = da.ravel(y_test).astype(np.float32)
-    
-        # ROC Curve and area under curve
-        fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
-        area_under_curve = auc(fpr, tpr)
         
-        # Plot ROC 
-        fig = plt.figure()
-        plt.plot(fpr, tpr, color='darkorange',
-                lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
-        plt.legend(loc="lower right")
-        fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
-        
-        # Precision-Recall Curve      
-        # Report and log DICE and average precision
-        p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
-        average_precision = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
-        
-        fig = plt.figure()
-        plt.plot(r, p, color='darkorange',
-                lw=2, label='PR curve (AP = %0.5f)' % average_precision)
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('Recall')
-        plt.ylabel('Precision')
-        plt.title('Precision Recall curve - '+str(data_dir.list_IDs[index]))
-        plt.legend(loc="lower right")
-        fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
-        
-        f1 = 2*p*r/(p+r)
-        optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
-        
-        print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
-        optimal_thresholds.append(thresholds[optimal_idx])
-        print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
-        recall.append(r[optimal_idx])
-        print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
-        precision.append(p[optimal_idx])
-        print('DICE Score: {}'.format(f1[optimal_idx]))
-        print('Average Precision Score: {}'.format(average_precision[index]))
-        average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
-                
-        # Convert to binary with optimal threshold
-        if binary_output:
-            y_pred = np.where(y_pred[...,1]>thresholds[optimal_idx],1,0) 
+        if n_classes==2:
+            """Calculate binary metrics"""
+            # ROC Curve and area under curve
+            fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
+            area_under_curve = auc(fpr, tpr)
+            
+            # Plot ROC 
+            fig = plt.figure()
+            plt.plot(fpr, tpr, color='darkorange',
+                    lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
+            plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
+            plt.legend(loc="lower right")
+            fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
+            
+            # Precision-Recall Curve      
+            # Report and log DICE and average precision
+            p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
+            ap = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
+            average_precision.append(ap)
+            
+            fig = plt.figure()
+            plt.plot(r, p, color='darkorange',
+                    lw=2, label='PR curve (AP = %0.5f)' % ap)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('Recall')
+            plt.ylabel('Precision')
+            plt.title('Precision Recall curve for '+str(data_dir.list_IDs[index]))
+            plt.legend(loc="lower right")
+            fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
+            
+            f1 = 2*p*r/(p+r)
+            optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
+            
+            print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
+            optimal_thresholds.append(thresholds[optimal_idx])
+            print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
+            recall.append(r[optimal_idx])
+            print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
+            precision.append(p[optimal_idx])
+            print('DICE Score: {}'.format(f1[optimal_idx]))
+            print('Average Precision Score: {}'.format(ap))
+                    
+            # Convert to binary with optimal threshold
+            if binary_output:
+                y_pred[y_pred>thresholds[optimal_idx]]=1
+                y_pred[y_pred<1]=0
 
-        # Save as tiff
-        tiff.imwrite(tiff_name, y_pred, photometric="minisblack", metadata=None)     
+        # else:
+        #     """Multi-class metrics - need to change predicition function to output one-hot-encoded segmentation """
+        #     classes = da.unique(y_test)
+        #     p, r, f1, s = precision_recall_fscore_support(y_test1D, y_pred1D, labels=np.array(classes), 
+        #                                           average=None, zero_division=np.nan)     
+        #     table = [p, r, f1, s]
+        #     df = pd.DataFrame(table, columns = np.array(classes), index=['Precision', 'Recall', 'F1 Score', 'Support'])
+        #     print(df)
+
+        # Save as tiff              
+        with tiff.TiffWriter(tiff_name, bigtiff=True) as tw:
+            for z in tqdm(range(y_pred.shape[0]), desc="Export BigTIFF", unit="slice"):
+                seg_slice = np.array(y_pred[z, :, :])  # bring one 2D slice to RAM
+                tw.write(seg_slice, photometric="minisblack", metadata=None)
         print('Predicted segmentation saved to {}'.format(tiff_name))
 
     return optimal_thresholds, recall, precision, average_precision

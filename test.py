@@ -20,7 +20,7 @@ def main(args):
     # Paramters
     volume_dims = args.volume_dims
     overlap = args.overlap
-    n_classes = 2 #TO DO expand to handel multi-class case
+    n_classes = args.n_classes #TO DO expand to handel multi-class case
     
     binary_output = args.binary_output
     attention = args.attention
@@ -61,10 +61,8 @@ def main(args):
     """ Load Model """
     tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
     
-    # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 10 layers frozen)
-    model = tubenet.load_weights(filename=model_path, 
-                                     loss='DICE BCE', 
-                                     metrics=['accuracy', 'recall', 'precision', tube.dice])
+    # Load exisiting model 
+    model = tubenet.load_weights(filename=model_path, loss='DICE BCE')
     
     """ Plot ROC """
     # Evaluate model on data
@@ -107,6 +105,8 @@ if __name__ == "__main__":
                         help="Save predictions as binary (True) or softmax (False).")
     parser.add_argument("--attention", action="store_true",
                         help="Use this flag if loading a tubenet model built with attention blocks") 
+    parser.add_argument("--n_classes", type=int, default=2,
+                        help="Number of classes to predict. Ensure this is the same for all data included in testing.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)
