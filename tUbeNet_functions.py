@@ -279,13 +279,12 @@ def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
         
         assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
         print('Labels processed with classes '+str(classes))
-        
-        # # TO DO - add check for non-integer classes
-        # # Map classes to integer label values starting at 0
-        # mapping = {old: new for new, old in enumerate(classes)}
-        # seg_mapped = da.zeros_like(seg, dtype=np.int32)
-        # for old, new in mapping.items():
-        #     seg_mapped[seg==old] = new
+
+        # Map classes to integer label values starting at 0
+        mapping = {old: new for new, old in enumerate(classes)}
+        seg_mapped = da.zeros_like(seg, dtype=np.int32)
+        for old, new in mapping.items():
+            seg_mapped[seg==old] = new
         
         seg = seg.astype('int16')            
            		
@@ -370,12 +369,22 @@ def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, ch
 #---------------------------EVALUATION----------------------------------------------------------------------
 
 def roc_analysis(model, data_dir, volume_dims=(64,64,64), 
-                 overlap=None, n_classes=2, 
-                 output_path=None): 
-    """"Plots ROC Curve and Precision-Recall Curve for paired 
-    ground truth labels and non-thresholded predictions (e.g. softmax output).
+                 overlap=None, n_classes=2, ignore_background=True,
+                 output_path=None, prob_output=True): 
+    """"
+    Plots ROC Curve and Precision-Recall Curve for paired ground truth labels 
+    and non-thresholded predictions (e.g. softmax output).
     Calculates DICE score, Area under ROC, Average Precision and optimal threshold.
-    Optionally saves tiff image of predicted labels."""
+    Optionally saves tiff image of predicted labels.
+    
+    model - trained model to be evaluated
+    data_dir - direcory of image data and corrosponding labels
+    volume_dims and overlap - parameters to pass to predict_segmentation_dask
+    n_classes - number of unquie classes in data labels including backgroud
+    ignore_background - when true, metrics are no calculated for class 0
+    ouput_path - location to save plots and predicted segmentation
+    prob_output - if true, the softmax probabilities will be saved, as opposed to the labels, allowing for custom thresholding
+    """
     optimal_thresholds = []
     recall = []
     precision = []
@@ -386,6 +395,12 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
 
     for index in range(0,len(data_dir.list_IDs)):
         print('Evaluating model on '+str(data_dir.list_IDs[index])+' data')
+        
+        # Add to lists 
+        optimal_thresholds.append([])
+        recall.append([])
+        precision.append([])
+        average_precision.append([])
 
         # Build output name from image filename and output path     
         dask_name = os.path.join(output_path, str(data_dir.list_IDs[index])+"_prediction")
@@ -403,15 +418,31 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         )
         
         y_pred = da.array(y_pred)
-                
-        # Create 1D numpy array of predicted output (softmax)
-        y_pred1D = da.ravel(y_pred).astype(np.float32)
-        
-        # Create 1D numpy array of true labels
         y_test = da.from_zarr(data_dir.label_filenames[index])
-        y_test1D = da.ravel(y_test).astype(np.float32)
         
-        if n_classes==2:
+        # """Multi-class metrics - need to change predicition function to output one-hot-encoded segmentation """
+        # classes = da.unique(y_test)
+        # p, r, f1, s = precision_recall_fscore_support(y_test1D, y_pred1D, labels=np.array(classes), 
+        #                                       average=None, zero_division=np.nan)     
+        # table = [p, r, f1, s]
+        # df = pd.DataFrame(table, columns = np.array(classes), index=['Precision', 'Recall', 'F1 Score', 'Support'])
+        # print(df)
+               
+        # Skip background class if ignore_bakcground is true
+        start = 0
+        if ignore_background: start = 1
+        
+        # Loop through classes
+        for c in range(start, n_classes): 
+            
+            # Create 1D numpy array of predicted output (softmax)
+            y_pred1D = da.ravel(y_pred[...,c]).astype(np.float32)
+            
+            # Create 1D numpy array of true labels for class
+            y_test_binary = da.where(y_test==c,1,0)
+            y_test1D = da.ravel(y_test_binary).astype(np.float32)
+            del y_test_binary
+            
             """Calculate binary metrics"""
             # ROC Curve and area under curve
             fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
@@ -426,16 +457,15 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             plt.ylim([0.0, 1.05])
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
-            plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
+            plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index])+' class '+str(c))
             plt.legend(loc="lower right")
-            fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
+            fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'_class_'+str(c)+'.png'))
             
             # Precision-Recall Curve      
             # Report and log DICE and average precision
             p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
             ap = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
-            average_precision.append(ap)
-            
+                        
             fig = plt.figure()
             plt.plot(r, p, color='darkorange',
                     lw=2, label='PR curve (AP = %0.5f)' % ap)
@@ -443,41 +473,39 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             plt.ylim([0.0, 1.05])
             plt.xlabel('Recall')
             plt.ylabel('Precision')
-            plt.title('Precision Recall curve for '+str(data_dir.list_IDs[index]))
+            plt.title('Precision Recall curve for '+str(data_dir.list_IDs[index])+' class '+str(c))
             plt.legend(loc="lower right")
-            fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
+            fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'_class_'+str(c)+'.png'))
             
-            f1 = 2*p*r/(p+r)
+            f1 = 2*p*r/(p+r+1e-6)
             optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
             
+            # Print metrics and add to lists
             print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
-            optimal_thresholds.append(thresholds[optimal_idx])
+            optimal_thresholds[index].append(thresholds[optimal_idx])
             print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
-            recall.append(r[optimal_idx])
+            recall[index].append(r[optimal_idx])
             print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
-            precision.append(p[optimal_idx])
+            precision[index].append(p[optimal_idx])
             print('DICE Score: {}'.format(f1[optimal_idx]))
             print('Average Precision Score: {}'.format(ap))
+            average_precision[index].append(ap)
                     
-            # Convert to binary with optimal threshold
-            if binary_output:
-                y_pred[y_pred>thresholds[optimal_idx]]=1
-                y_pred[y_pred<1]=0
-
-        # else:
-        #     """Multi-class metrics - need to change predicition function to output one-hot-encoded segmentation """
-        #     classes = da.unique(y_test)
-        #     p, r, f1, s = precision_recall_fscore_support(y_test1D, y_pred1D, labels=np.array(classes), 
-        #                                           average=None, zero_division=np.nan)     
-        #     table = [p, r, f1, s]
-        #     df = pd.DataFrame(table, columns = np.array(classes), index=['Precision', 'Recall', 'F1 Score', 'Support'])
-        #     print(df)
-
-        # Save as tiff              
-        with tiff.TiffWriter(tiff_name, bigtiff=True) as tw:
-            for z in tqdm(range(y_pred.shape[0]), desc="Export BigTIFF", unit="slice"):
-                seg_slice = np.array(y_pred[z, :, :])  # bring one 2D slice to RAM
-                tw.write(seg_slice, photometric="minisblack", metadata=None)
-        print('Predicted segmentation saved to {}'.format(tiff_name))
+            
+        # Save as tiff 
+        if prob_output: 
+            # Reorder ZXYC to ZCXY to allow saving with imwrite
+            y_pred=np.moveaxis(y_pred, -1, 1)        
+            tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZCYX"}, imagej=True, bigtiff=True)
+            print('Predicted segmentation saved to {}'.format(tiff_name))
+        else:
+            # Reverse one hot encoding using optimal thresholds 
+            # !!To Do!! These thresholds should be defined on training data as opposed to test/validation
+            # Add threshold optimisation in training and pass to validation analysis ROC?
+            for c in range(start, n_classes):
+                y_pred[..., c] = np.where(y_pred[..., c]>optimal_thresholds[index][c-start], 1, 0)
+            y_pred = np.argmax(y_pred, axis=-1).astype(np.uint8) 
+            tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZYX"}, imagej=True, bigtiff=True)
+            print('Predicted segmentation saved to {}'.format(tiff_name))
 
     return optimal_thresholds, recall, precision, average_precision

@@ -15,7 +15,7 @@ import dask.array as da
 import zarr
 from tqdm import tqdm
 import tifffile as tiff
-import pandas as pd
+#import pandas as pd
 
 # import tensor flow
 import tensorflow as tf
@@ -148,72 +148,3 @@ def diceBCELoss(y_true, y_pred, smooth=1e-6):
     dice_loss = 1-dice(y_true, y_pred, smooth=smooth)
     dice_BCE = (BCE + dice_loss)/2
     return dice_BCE
-
-#-----------------------------------------------------------------------------------------------------------------------
-"""ROC Analysis"""
-def class_roc_analysis(y_pred, y_test, pos_class=1, 
-                       output_name=None, 
-                       output_path=None): 
-    """"Plots ROC Curve and Precision-Recall Curve for paired 
-    ground truth labels and non-thresholded predictions (e.g. softmax output).
-    Calculates DICE score, Area under ROC, Average Precision and optimal threshold.
-    Optionally saves tiff image of predicted labels.
-    Input - y_pred and y_true must be OHE dask arrays
-    Output - segmentation metrics for pos_class"""
-  
-    # Create 1D numpy array of predicted output (softmax)
-    y_pred1D = da.ravel(y_pred).astype(np.float32)
-    
-    # Create 1D numpy array of true labels
-    y_test1D = da.ravel(y_test).astype(np.float32)
-    
-    
-    """Calculate binary metrics"""
-    # ROC Curve and area under curve
-    fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
-    area_under_curve = auc(fpr, tpr)
-    
-    # Plot ROC 
-    fig = plt.figure()
-    plt.plot(fpr, tpr, color='darkorange',
-            lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver operating characteristic for '+str(output_name)+' class '+str(pos_class))
-    plt.legend(loc="lower right")
-    fig.savefig(os.path.join(output_path,'ROC_'+str(output_name)+'_class_'+str(pos_class)+'.png'))
-    
-    # Precision-Recall Curve      
-    # Report and log DICE and average precision
-    p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
-    ap = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
-    
-    fig = plt.figure()
-    plt.plot(r, p, color='darkorange',
-            lw=2, label='PR curve (AP = %0.5f)' % ap)
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision Recall curve - '+str(output_name)+' class '+str(pos_class))
-    plt.legend(loc="lower right")
-    fig.savefig(os.path.join(output_path,'PRCurve_'++str(output_name)+'_class_'+str(pos_class)+'.png'))
-    
-    f1 = 2*p*r/(p+r)
-    optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
-    
-    # Assign and print metrics at optimal thershold 
-    optimal_threshold=thresholds[optimal_idx]
-    print('Optimal threshold: {}'.format(optimal_threshold))
-    recall=r[optimal_idx]
-    print('Recall at optimal threshold: {}'.format(recall))
-    precision=p[optimal_idx]
-    print('Precision at optimal threshold: {}'.format(precision))
-    dice=f1[optimal_idx]
-    print('DICE Score: {}'.format(dice))
-    print('Average Precision Score: {}'.format(ap))
-            
-    return optimal_threshold, recall, precision, ap

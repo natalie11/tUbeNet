@@ -232,12 +232,14 @@ class tUbeNet(tf.keras.Model):
         
         # create path for file containing weights
         if filename is None:
-            raise ValueError("model weights filename must be provided")
-        if os.path.isfile(filename+'.h5'):
+            raise ValueError("Model weights filename must be provided")
+        if os.path.isfile(filename):
+            mfile=filename
+        elif os.path.isfile(filename+'.h5'):
             mfile = filename+'.h5'
         elif os.path.isfile(filename+'.hdf5'):
             mfile = (filename+'.hdf5')
-        else: mfile=filename
+        else: raise ValueError("Could not locate model weights file at {}".format(filename))
         
         custom_loss=self.selectLoss(loss,class_weights)
         
@@ -248,8 +250,20 @@ class tUbeNet(tf.keras.Model):
     	           with strategy.scope():
     	                  model = self.build_model()
     	                  # load weights into new model
-    	                  model.load_weights(mfile)
-                          
+    	                  try:
+                              model.load_weights(mfile)
+    	                  except Exception as e:
+                              if self.n_classes >2:
+                                  # Likely using the publically avaiable binary pre-trained weights for a multi-class model
+                                  try:
+                                      # Build a base model with binary classifier - this will be replaced later
+                                      model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
+                                                           alpha=self.alpha, attention=self.attention).build_model()
+                                      # Load weights from mfile
+                                      model.load_weights(mfile)
+                                  except: print(e) # If this doesn't work - revert to original error message
+                              else: print(e) # 
+                              
     	                  # recover the output from the last layer in the model and use as input to new Classifer
     	                  last = model.layers[-2].output
     	                  classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
@@ -261,7 +275,19 @@ class tUbeNet(tf.keras.Model):
             else:
     	           model = self.build_model()
     	           # load weights into new model
-    	           model.load_weights(mfile)
+    	           try:
+                       model.load_weights(mfile)
+    	           except Exception as e:
+                           if self.n_classes >2:
+                               # Likely using the publically avaiable binary pre-trained weights for a multi-class model
+                               try:
+                                   # Build a base model with binary classifier - this will be replaced later
+                                   model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
+                                                        alpha=self.alpha, attention=self.attention).build_model()
+                                   # Load weights from mfile
+                                   model.load_weights(mfile)
+                               except: print(e) # If this doesn't work - revert to original error message
+                           else: print(e) # 
                           
     	           # recover the output from the last layer in the model and use as input to new Classifer
     	           last = model.layers[-2].output

@@ -104,8 +104,8 @@ def main(args):
                                      loss=loss, 
                                      class_weights=class_weights, 
                                      learning_rate=lr0, 
-                                     metrics=['accuracy', 'recall', 'precision', tube.dice],
-                                     freeze_layers=2, fine_tune=fine_tune)
+                                     metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)],
+                                     freeze_layers=6, fine_tune=fine_tune)
     
     else:
         model = tubenet.create(learning_rate=lr0, 
@@ -192,8 +192,7 @@ def main(args):
         validation_metrics = tube.roc_analysis(model, val_dir, 
                                           volume_dims=volume_dims,
                                           n_classes=n_classes, 
-                                          output_path=output_path,
-                                          binary_output=binary_output) 
+                                          output_path=output_path) 
 
 def parse_dims(values):
     """Parse volume dimensions: allow either one int (isotropic) or three ints (anisotropic)."""
@@ -234,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_weighting", type=float, nargs="+", default=None,
                         help="Relative weighting when pulling training data from multiple datasets.")
     parser.add_argument("--loss", type=str, default="DICE BCE",
-                        choices=["DICE BCE", "focal", "WCCE"],
+                        choices=["DICE BCE", "focal", "WCCE", "DICE CE"],
                         help="Loss function.")
     parser.add_argument("--lr0", type=float, default=1e-3,
                         help="Initial learning rate.")

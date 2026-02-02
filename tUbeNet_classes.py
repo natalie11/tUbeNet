@@ -208,8 +208,8 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         x_shape=self.x.shape
         z_centre = int(x_shape[1]/2)
         img = self.x[0,z_centre,:,:,:] #take centre slice in z-stack
-        labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
-        pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[1],x_shape[2],1)) #reverse one hot encoding
+        labels = np.reshape(np.argmax(self.y[0,z_centre,:,:,:], axis=-1),(x_shape[2],x_shape[3],1)) #reverse one hot encoding
+        pred = np.reshape(np.argmax(self.pred[0,z_centre,:,:,:], axis=-1),(x_shape[2],x_shape[3],1)) #reverse one hot encoding
         img = tf.convert_to_tensor(img,dtype=tf.float32)
         labels = tf.convert_to_tensor(labels,dtype=tf.float32)
         pred = tf.convert_to_tensor(pred,dtype=tf.float32)
