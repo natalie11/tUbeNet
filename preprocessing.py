@@ -39,6 +39,12 @@ def main(args):
         label_filenames = [None]*len(image_filenames)
          
     # Process and save each dataset in directory
+    print("Image files:")
+    print(*image_filenames, sep="\n")
+    if label_directory is not None:
+        print("Label files:")
+        print(*label_filenames, sep="\n")   
+    
     for image_filename, label_filename in zip(image_filenames, label_filenames):
         # Set names and paths
         output_name = os.path.splitext(image_filename)[0]

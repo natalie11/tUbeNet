@@ -236,6 +236,46 @@ def predict_segmentation_dask(
     return softmax, os.path.join(out_store, "segmentation")
 
 #-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
+def fix_label_format(seg, chunks):
+    """ Finds unique classes in mutli-channel segmentation files, 
+    and combines into a single 3D array, where each class has a unique pixel value.
+    E.g. (Z,X,Y,2) where thefirst channel has pixel values 0 and 1, and the second channel has 
+    pixel values 0, 1, 2 becomes (Z,X,Y) with pixel values 0, 1, 2, 3"""
+    
+    print("Merging channels into a single class map")
+    assert len(seg.shape)==4, "Expected (Z, X, Y) or (Z, X, Y, C) segmentation"
+    
+    seg = da.from_array(seg) # Create Dask Array with automatic chunk size
+    channel_info = {} # Record info about unique classes in each channel
+
+    for c in range(seg.shape[-1]):
+        values = da.unique(seg[..., c]).compute()
+        assert len(values)<51, "Over 50 unqiue classes identified - check labels file is correct."
+        channel_info[c] = values
+        print(f"Channel {c} classes: {values}")
+
+    merged = da.zeros(seg.shape[:-1], chunks=chunks, dtype="int16")
+    next_class = 1 #Start re-labelling classes starting at 1
+    
+    for c, values in channel_info.items():
+        for v in values:
+            if v == 0: # Skip background class in each channel
+                continue
+
+            mask = seg[..., c] == v
+            # Check for overlapping classes
+            overlap = da.logical_and(mask, merged!=0)
+            if da.any(overlap).compute():
+                tot = da.sum(overlap).compute()
+                print(f"WARNING: Overlap detected for channel {c}, value {v} ({tot} pixels). Previous label overwritten.")
+
+            merged = da.where(mask, next_class, merged)
+            next_class += 1
+    
+    print("Labels file now has shape "+str(merged.shape)+" with classes "+str(da.unique(merged).compute())+".")
+    
+    return merged
+
 def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
     """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
@@ -272,21 +312,31 @@ def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
     if label_path is not None:
         print('Loading labels from '+str(label_path))
         seg = io.imread(label_path)
-        seg = da.from_array(seg,chunks=chunks)
-
+        
         # Find the number of unique classes in segmented training set
-        classes = da.unique(seg).compute()
-        
-        assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
-        print('Labels processed with classes '+str(classes))
-
-        # Map classes to integer label values starting at 0
-        mapping = {old: new for new, old in enumerate(classes)}
-        seg_mapped = da.zeros_like(seg, dtype=np.int32)
-        for old, new in mapping.items():
-            seg_mapped[seg==old] = new
-        
-        seg = seg.astype('int16')            
+        if len(seg.shape)>3:
+            # Assume classes are saved as different channels
+            seg = fix_label_format(seg, chunks)
+        else:
+            seg = da.from_array(seg,chunks=chunks)
+            classes = da.unique(seg).compute()
+            
+            assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
+            print('Labels processed with classes '+str(classes))
+            
+            # Check that classes are consecutive integers starting at 0
+            classes=np.sort(classes)
+            is_consecutive = (classes[0] == 0 and np.array_equal(classes, np.arange(len(classes))))
+    
+            # If not - map classes to integer label values starting at 0
+            if not is_consecutive:
+                mapping = {old: new for new, old in enumerate(classes)}
+                seg_mapped = da.zeros_like(seg, dtype=np.int32)
+                for old, new in mapping.items():
+                    seg_mapped[seg==old] = new
+                seg = seg_mapped
+            
+            seg = seg.astype('int16')            
            		
         return img, seg
 
@@ -299,14 +349,15 @@ def list_image_files(directory):
     if os.path.isdir(directory):
         # Add all file paths of image_paths
         image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        image_filenames = sorted(image_filenames) # Sort alphabetically
     elif os.path.isfile(directory):
         # If file is given, process this file only
-        image_directory, image_filenames = os.path.split(directory.replace('\\','/'))
+        directory, image_filenames = os.path.split(directory.replace('\\','/'))
         image_filenames = [image_filenames]
     else:
         return None, None
     
-    return image_directory, image_filenames
+    return directory, image_filenames
 
 def crop_from_labels(labels, data):
     """Crops 3D dask array based on labels.
@@ -435,6 +486,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         # Loop through classes
         for c in range(start, n_classes): 
             
+            print("Class {}".format(c))
             # Create 1D numpy array of predicted output (softmax)
             y_pred1D = da.ravel(y_pred[...,c]).astype(np.float32)
             
@@ -502,6 +554,7 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             # Reverse one hot encoding using optimal thresholds 
             # !!To Do!! These thresholds should be defined on training data as opposed to test/validation
             # Add threshold optimisation in training and pass to validation analysis ROC?
+            # Or always use simple argmax? This requires extra class weight tuning to prevent under-represented classes being missed 
             for c in range(start, n_classes):
                 y_pred[..., c] = np.where(y_pred[..., c]>optimal_thresholds[index][c-start], 1, 0)
             y_pred = np.argmax(y_pred, axis=-1).astype(np.uint8) 

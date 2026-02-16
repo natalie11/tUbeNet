@@ -9,9 +9,9 @@ import numpy as np
 import tifffile as tiff
 import dask.array as da
 
-image_path = '/home/natalie/Documents/CDC/predictions/Volume_DimmigransM1_crop1_test_prediction/labels'
+image_path = '/home/natalie/Documents/CDC/preprocessed/nrrdtest/Volume_DimmigransM1_crop1_labels'
 output_path = '/home/natalie/Documents/CDC/predictions'
-name = "Volume_DimmigransM1_crop1_test_prediction_labels"
+name = "processed_labels"
 
 img = da.from_zarr(image_path)
 
