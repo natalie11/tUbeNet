@@ -1,6 +1,6 @@
-[![DOI](https://zenodo.org/badge/187050295.svg)](https://doi.org/10.5281/zenodo.15683547) [![DOI:10.1101/2023.07.24.550334](http://img.shields.io/badge/DOI-10.1101/2021.01.08.425840-B31B1B.svg)](https://doi.org/10.1101/2023.07.24.550334) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DOI](https://zenodo.org/badge/187050295.svg)](https://doi.org/10.5281/zenodo.15683547) [![DOI](https://img.shields.io/badge/DOI-10.1093%2Fbiomethods%2Fbpaf087-blue)](https://doi.org/10.1093/biomethods/bpaf087) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 # tUbeNet
-tUbeNet is a 3D convolutional neural network (CNN) for semantic segmentation of vasculature from 3D grayscale medical images. It was trained on varied data across different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training ([Preprint here](https://doi.org/10.1101/2023.07.24.550334)).
+tUbeNet is a 3D convolutional neural network (CNN) for semantic segmentation of vasculature from 3D grayscale medical images. It was trained on varied data across different modalities, scales and pathologies, to create a generalisable foundation model, which can be fine-tuned to new images with a minimal additional training ([Paper here](https://doi.org/10.1093/biomethods/bpaf087)).
 
 * Download pretrained weights [here](https://doi.org/10.5522/04/25498603.v2).
 * The original training/test data can be found [here](https://doi.org/10.5522/04/25715604.v1).
@@ -32,7 +32,9 @@ python -m venv '\path\to\environment'
 pip install -r requirements.txt
 ```
 
-**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13 (Linux) or >=527.41 (Windows). GPU running is not supported on MacOS. On memory usage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per \numproduct{64x64x64} volume when run on a single GPU.
+**Note on GPU usage:** tUbenet has been tested with CUDA 12.9 and cudnn 9.3 (pinned in requirements.txt and tubenet_env.yml). These versions are compatible with Nvidia GPUs with the Pascal microachritecture (e.g. GeForce GTX 10 series) and newer. GPU users will need a Nvidia driver >=525.60.13. On memory usage: the pre-trained model was trained on two 8 GB Nvidia GeForce GTX 1080 GPUs, but tUbeNet is also compatible with single GPU training. Peak memory usage was measured at 5.49 GB when training on a single GPU. Inference time was 222 ms per 64x64x64 volume when run on a single GPU.
+
+**Note for Windows/ MacOS users:** TensorFlow no longer supports GPU usage on Windows or Mac. You can still run tUbnet with CPU only - just make sure you DELETE the Nvidia packages from requirements.txt / tubenet_env.yml before installing. Or see [tensorflow's website](https://www.tensorflow.org/install/pip#windows-wsl2) for instructions on using Windows Subsystem for Linux (WSL) to allow GPU utilization on a Windows machine. 
 
 ## How to use
 
@@ -205,3 +207,5 @@ Zarr segmentations in --output_path.
 
 ```--preview``` → Use this flag to save prediction previews at regular intervals throughout inference. This is useful for checking the the model prediction is sensible without having to wait for the entire image to be processed.
 
+## Citing
+If you use this model in any published work, please cite our [paper](https://doi.org/10.1093/biomethods/bpaf087).
