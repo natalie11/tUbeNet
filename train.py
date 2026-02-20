@@ -16,7 +16,8 @@ from model import tUbeNet
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
-from tUbeNet_metrics import MacroDice
+from tUbeNet_metrics import MacroDice, create_dual_task_loss
+import tensorflow as tf
 
 def main(args):
     """Set parameters and file paths:"""
@@ -36,6 +37,8 @@ def main(args):
     binary_output = args.binary_output
     augment = args.no_augment
     attention = args.attention
+    train_skeleton = args.train_skeleton
+    skeleton_loss = args.skeleton_loss
     
     """ Paths and filenames """
     # Training data
@@ -67,7 +70,8 @@ def main(args):
     # Create empty data directory    
     data_dir = DataDir([], image_dims=[], 
                        image_filenames=[], 
-                       label_filenames=[], 
+                       label_filenames=[],
+                       skeleton_filenames=[],
                        data_type=[], exclude_region=[])
     
     # Fill directory from headers
@@ -76,21 +80,32 @@ def main(args):
         data_dir.image_dims.append(header.image_dims)
         data_dir.image_filenames.append(header.image_filename)
         data_dir.label_filenames.append(header.label_filename)
+        data_dir.skeleton_filenames.append(getattr(header, 'skeleton_filename', None))  # Get skeleton if available
         data_dir.data_type.append('float32')
         data_dir.exclude_region.append((None,None,None)) #region to be left out of training for use as validation data (under development)
 
     """ Create Data Generator """
+    # Check if skeletons are available
+    skeleton_available = any(skel is not None for skel in data_dir.skeleton_filenames)
+    if train_skeleton and not skeleton_available:
+        print("WARNING: --train_skeleton requested but no skeleton data found in headers. Training without skeleton branch.")
+        train_skeleton = False
+    elif not train_skeleton and skeleton_available:
+        print("NOTE: Skeleton data is available but --train_skeleton not requested. Skeletons will not be used for training.")
+    
     params = {'batch_size': batch_size,
               'volume_dims': volume_dims, 
               'n_classes': n_classes,
               'dataset_weighting': dataset_weighting,
-              'augment':augment,
+              'augment': augment,
+              'skeleton_available': skeleton_available and train_skeleton,
     	       'shuffle': False}
     
-    data_generator=DataGenerator(data_dir, **params)
+    data_generator = DataGenerator(data_dir, **params)
     
     """ Load or Build Model """
-    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
+    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, 
+                      dual_output=(skeleton_available and train_skeleton))
     
     if model_weights_file is not None:
         # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 2 blocks frozen)
@@ -99,19 +114,45 @@ def main(args):
                 model_weights_file=os.path.join(model_path, model_weights_file)
             else:
                 raise FileNotFoundError("Could not locate model weights file at {}".format(model_weights_file))
-                
-        model = tubenet.load_weights(filename=os.path.join(model_path,model_weights_file), 
-                                     loss=loss, 
-                                     class_weights=class_weights, 
-                                     learning_rate=lr0, 
-                                     metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)],
-                                     freeze_layers=6, fine_tune=fine_tune)
+        
+        if skeleton_available and train_skeleton:
+            print("ERROR: Loading weights for dual-task model not yet implemented. Please train from scratch with --train_skeleton.")
+            raise NotImplementedError("load_weights for dual-task models needs implementation")
+        else:
+            model = tubenet.load_weights(filename=os.path.join(model_path,model_weights_file), 
+                                         loss=loss, 
+                                         class_weights=class_weights, 
+                                         learning_rate=lr0, 
+                                         metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)],
+                                         freeze_layers=6, fine_tune=fine_tune)
     
     else:
-        model = tubenet.create(learning_rate=lr0, 
-                               loss=loss, 
-                               class_weights=class_weights, 
-                               metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)])
+        if skeleton_available and train_skeleton:
+            # Create dual-task model with learnable weighted loss
+            print("Creating dual-task model for vessel segmentation + skeleton prediction...")
+            model = tubenet.build_model(encoder_only=False)
+            
+            # Create learnable weighted loss
+            dual_loss = create_dual_task_loss(
+                mask_loss=skeleton_loss,
+                class_weights=class_weights,
+                init_log_weight_mask=-0.69,  # w1 ≈ 0.5
+                init_log_weight_skel=-1.2,   # w2 ≈ 0.3
+                init_log_weight_reg=-1.6     # w3 ≈ 0.2
+            )
+            
+            # Compile model with dual loss
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(learning_rate=lr0),
+                loss=dual_loss,
+                metrics=['accuracy']
+            )
+        else:
+            model = tubenet.create(learning_rate=lr0, 
+                                   loss=loss, 
+                                   class_weights=class_weights, 
+                                   metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)])
+
     
     
     """ Train and save model """
@@ -251,6 +292,13 @@ if __name__ == "__main__":
                         help="Enable fine-tuning by freezing shallow layers.")
     parser.add_argument("--binary_output", action="store_true",
                         help="Save predictions as binary image instead of softmax.")
+    
+    # Skeleton training options
+    parser.add_argument("--train_skeleton", action="store_true",
+                        help="Enable dual-task training with skeleton prediction. Requires skeleton data in headers.")
+    parser.add_argument("--skeleton_loss", type=str, default="dice_bce",
+                        choices=["dice_bce", "dice_ce", "wcce"],
+                        help="Loss function for vessel mask in dual-task training.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)

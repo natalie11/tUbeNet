@@ -15,6 +15,9 @@ import dask.array as da
 import zarr
 from tqdm import tqdm
 from scipy.signal.windows import general_hamming
+from scipy.ndimage import distance_transform_edt
+from skimage.morphology import skeletonize
+from skimage.util import apply_parallel
 import tifffile as tiff
 
 # import tensor flow
@@ -34,6 +37,278 @@ except:
 tf.config.optimizer.set_experimental_options({
     "remapping": False
 })
+
+#-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
+
+def fix_label_format(seg, chunks):
+    """ Finds unique classes in mutli-channel segmentation files, 
+    and combines into a single 3D array, where each class has a unique pixel value.
+    E.g. (Z,X,Y,2) where thefirst channel has pixel values 0 and 1, and the second channel has 
+    pixel values 0, 1, 2 becomes (Z,X,Y) with pixel values 0, 1, 2, 3"""
+    
+    print("Merging channels into a single class map")
+    assert len(seg.shape)==4, "Expected (Z, X, Y) or (Z, X, Y, C) segmentation"
+    
+    seg = da.from_array(seg) # Create Dask Array with automatic chunk size
+    channel_info = {} # Record info about unique classes in each channel
+
+    for c in range(seg.shape[-1]):
+        values = da.unique(seg[..., c]).compute()
+        assert len(values)<51, "Over 50 unqiue classes identified - check labels file is correct."
+        channel_info[c] = values
+        print(f"Channel {c} classes: {values}")
+
+    merged = da.zeros(seg.shape[:-1], chunks=chunks, dtype="int16")
+    next_class = 1 # Start re-labelling classes starting at 1
+    
+    for c, values in channel_info.items():
+        for v in values:
+            if v == 0: # Skip background class in each channel
+                continue
+
+            mask = seg[..., c] == v
+            # Check for overlapping classes
+            overlap = da.logical_and(mask, merged!=0)
+            if da.any(overlap).compute():
+                tot = da.sum(overlap).compute()
+                print(f"WARNING: Overlap detected for channel {c}, value {v} ({tot} pixels). Previous label overwritten.")
+
+            merged = da.where(mask, next_class, merged)
+            next_class += 1
+    
+    print("Labels file now has shape "+str(merged.shape)+" with classes "+str(da.unique(merged).compute())+".")
+    
+    return merged
+
+def data_preprocessing(image_path=None, label_path=None, skeleton_path=None, chunks='auto'):
+    """# Pre-processing
+    Load data, downsample if neccessary, normalise and pad.
+    Inputs:
+    image_path = path to image data (string)
+    label_path = path to labels (string)
+    skeleton_path = path to skeleton data (string)
+    Outputs:
+    img = image data as an dask array, scaled between 0 and 1, float32
+    seg = label data as an dask array, scaled between 0 and 1, int16
+    skeleton = skeleton data as dask array, scaled between 0 and 1, int16
+    """
+    
+    # Load image
+    print('Loading images from '+str(image_path))
+    img=io.imread(image_path)
+    img=da.from_array(img,chunks=chunks)
+    print('Size '+str(img.shape))
+
+    if len(img.shape)==4:
+        print('Image data has 4 dimensions. Cropping to first 3 dimensions')
+        img=img[:,:,:,0]
+    assert img.ndim == 3, "Expected (Z,X,Y) image"
+    
+    # Normalise 
+    print('Rescaling data between 0 and 1')
+    img_min = da.min(img)
+    denominator = da.nanmax(img)-img_min 
+    img = (img-img_min)/denominator # Rescale between 0 and 1
+    
+    # Set data type
+    img = img.astype('float32')
+    seg = None
+    skeleton = None
+
+	#Repeat for labels is present
+    if label_path is not None:
+        print('Loading labels from '+str(label_path))
+        seg = io.imread(label_path)
+        
+        # Find the number of unique classes in segmented training set
+        if len(seg.shape)>3:
+            # Assume classes are saved as different channels
+            seg = fix_label_format(seg, chunks)
+        else:
+            seg = da.from_array(seg,chunks=chunks)
+            classes = da.unique(seg).compute()
+            
+            assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
+            print('Labels processed with classes '+str(classes))
+            
+            # Check that classes are consecutive integers starting at 0
+            classes=np.sort(classes)
+            is_consecutive = (classes[0] == 0 and np.array_equal(classes, np.arange(len(classes))))
+    
+            # If not - map classes to integer label values starting at 0
+            if not is_consecutive:
+                mapping = {old: new for new, old in enumerate(classes)}
+                seg_mapped = da.zeros_like(seg, dtype=np.int32)
+                for old, new in mapping.items():
+                    seg_mapped[seg==old] = new
+                seg = seg_mapped
+            
+            seg = seg.astype('uint16')            
+           		
+    if skeleton_path is not None:
+        print('Loading skeleton from '+str(skeleton_path))
+        skeleton = io.imread(skeleton_path)
+        skeleton = da.from_array(skeleton, chunks=chunks)
+
+        if len(skeleton.shape)==4:
+            print('Skeleton data has 4 dimensions. Cropping to first 3 dimensions')
+            skeleton=skeleton[:,:,:,0]
+        assert skeleton.ndim == 3, "Expected (Z,X,Y) skeleton data"
+
+        if da.unique(skeleton).compute().max()>1 or len(da.unique(skeleton).compute())>2:
+            print("Warning: Skeleton data has values greater than 1 or non-binary values. Converting to binary mask with threshold 0.5.")
+            skeleton = da.where(skeleton>=0.5,1,0)
+        skeleton = skeleton.astype('uint8')
+
+    return img, seg, skeleton
+
+def list_image_files(directory):
+    """ Lists files in a directory. 
+    This function is used to handle either a directory of files, or a single file.
+    If given a path to a single file - splits the directory path from the filename.
+    Returns directory path and list of filename."""
+    if os.path.isdir(directory):
+        # Add all file paths of image_paths
+        image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        image_filenames = sorted(image_filenames) # Sort alphabetically
+    elif os.path.isfile(directory):
+        # If file is given, process this file only
+        directory, image_filenames = os.path.split(directory.replace('\\','/'))
+        image_filenames = [image_filenames]
+    else:
+        return None, None
+    
+    return directory, image_filenames
+
+def crop_from_labels(data, labels, skeleton=None):
+    """Crops 3D dask array based on labels.
+    Returns a 3D dask array.""" 
+    iz, ix, iy = da.nonzero(labels) # find instances of non-zero values in X_test along axis 1
+    zmin, xmin, ymin = da.min(iz), da.min(ix), da.min(iy)
+    zmax, xmax, ymax = da.max(iz), da.max(ix), da.max(iy)
+
+    labels = labels[zmin:zmax+1, xmin:xmax+1, ymin:ymax+1] # use this to index data and labels
+    data = data[zmin:zmax+1, xmin:xmax+1, ymin:ymax+1]
+    if skeleton is not None:
+        skeleton = skeleton[zmin:zmax+1, xmin:xmax+1, ymin:ymax+1]
+    print("Cropped to {}".format(data.shape))
+    
+    return labels, data, skeleton
+
+def split_train_test(data, labels, val_fraction, skeleton=None):
+    """"Splits paired images and labels into training and validation sets given a validation fraction.
+    Optionally splits skeletons if provided.
+    Takes data/labels/skeleton as dask arrays.
+    Outputs lists of training and testing [data, labels, skeletons (if provided)] as dask arrays."""
+    n_training_imgs = int(data.shape[0]-da.floor(data.shape[0]*val_fraction))
+    training = []
+    testing = []
+            
+    training.append(data[0:n_training_imgs,...])
+    testing.append(data[n_training_imgs:,...])
+
+    training.append(labels[0:n_training_imgs,...])
+    testing.append(labels[n_training_imgs:,...])
+
+    if skeleton is not None:
+        training.append(skeleton[0:n_training_imgs,...])
+        testing.append(skeleton[n_training_imgs:,...])
+    else:
+        training.append(None)
+        testing.append(None)
+
+    return training, testing
+            
+def save_as_zarr_array(data, labels=None, skeleton=None, output_path=None, output_name=None, chunks=(64,64,64)):
+    """"Data (and optionally labels, skeleton) are saved in chunked zarr format.
+    A data header is created to record image shape, ID and path for data/labels."""
+    # Create header folder if does not exist
+    header_folder=os.path.join(output_path, "headers")
+    if not os.path.exists(header_folder):
+        os.makedirs(header_folder)
+    header_name=os.path.join(header_folder,str(output_name)+"_header")
+    
+    # Rechunk dask array and save as zarr
+    data = data.rechunk(chunks)
+    data.to_zarr(os.path.join(output_path, output_name))
+    
+    from tUbeNet_classes import DataHeader
+    
+    labels_filename = None
+    skeleton_filename = None
+    
+    # Repeat of labels if present
+    if labels is not None: 
+        # Rechunk dask array and save as zarr
+        labels = labels.rechunk(chunks)
+        labels.to_zarr(os.path.join(output_path, str(output_name)+"_labels"))
+        labels_filename = os.path.join(output_path, str(output_name)+"_labels")
+        
+    # Repeat of skeleton if present
+    if skeleton is not None:
+        # Rechunk dask array and save as zarr
+        skeleton = skeleton.rechunk(chunks)
+        skeleton.to_zarr(os.path.join(output_path, str(output_name)+"_skeleton"))
+        skeleton_filename = os.path.join(output_path, str(output_name)+"_skeleton")
+
+    # Save data header for easy reading in, with label_filename=None
+    header = DataHeader(ID=output_name, image_dims=data.shape, 
+                            image_filename=os.path.join(output_path, output_name),
+                            label_filename=labels_filename,
+                            skeleton_filename=skeleton_filename)
+    header.save(header_name)
+        
+    return output_path, header_name
+
+def generate_skeleton(labels, chunks=(64,64,64)):
+    """ Generate skeleton from binary vessel mask using 3D skeletonization.
+    Inputs:
+        labels: binary dask array with values 0 and 1
+    Outputs:
+        skeleton: 3D array with skeletonized vessels (same shape as labels)
+    """
+    # Use apply_parallel to apply skimage skeletonization across chunks
+    # Compute=False causes apply_parallel to return a dask array
+    overlap = (chunks[0]//2, chunks[1]//2, chunks[2]//2) # Overlap of half chunk size to avoid boundary artefacts
+    skeleton = apply_parallel(skeletonize, labels, chunks=chunks, depth=overlap, 
+                              mode='nearest', compute=False, dtype='bool')
+        
+    return skeleton.astype(np.uint8)
+
+def compute_distance_field(skeleton, binary_mask, sigma=2.0, chunks=(64,64,64)):
+    """
+    Compute distance field from skeleton with exponential decay.
+    Distance values decay exponentially from skeleton (value 1) to 5 pixels away (value ~0).
+    
+    Inputs:
+        skeleton: 3D binary array (skeleton centerlines)
+        binary_mask: 3D binary array (vessel mask to constrain field)
+        sigma: decay parameter for exponential function (higher = wider falloff)
+        normalize: If True, output is scaled to [0, 1]; if False, raw exponential decay
+    
+    Outputs:
+        distance_field: 3D array with values decaying from 1 to 0, same shape as skeleton
+    """
+
+    # Invert skeleton, as distance_transform_edt computes distance to nearest non-zero voxel
+    skel_inverted = da.logical_not(skeleton.astype(bool))
+
+    # apply distance_transform_edt on overlapping chunks, calculates euclidean distance from skeleton
+    # returns 0 at skeleton voxels, increasing away from skeleton
+    overlap = (chunks[0]//2, chunks[1]//2, chunks[2]//2)
+    distance_to_skeleton = apply_parallel(distance_transform_edt, skel_inverted, chunks=chunks,
+                                          depth=overlap, mode='nearest', compute=False, dtype=np.float64)
+    
+    # Apply exponential decay: exp(-distance/sigma)
+    # This gives 1.0 at skeleton, decaying to ~0 at distance >> sigma
+    assert sigma > 0, "Sigma must be positive for exponential decay"
+    distance_field = da.exp(-distance_to_skeleton / sigma)
+    
+    # Constrain to vessel mask (set to 0 outside vessels)
+    distance_field = da.where(binary_mask, distance_field, 0.0)
+    distance_field = distance_field.astype(np.float32)
+    
+    return distance_field
 
 #---------------------------INFERENCE------------------------------------------------------------------------------------------------------------------------
 				
@@ -234,188 +509,6 @@ def predict_segmentation_dask(
                 tw.write(seg_slice, photometric="minisblack", metadata=None)
 
     return softmax, os.path.join(out_store, "segmentation")
-
-#-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
-def fix_label_format(seg, chunks):
-    """ Finds unique classes in mutli-channel segmentation files, 
-    and combines into a single 3D array, where each class has a unique pixel value.
-    E.g. (Z,X,Y,2) where thefirst channel has pixel values 0 and 1, and the second channel has 
-    pixel values 0, 1, 2 becomes (Z,X,Y) with pixel values 0, 1, 2, 3"""
-    
-    print("Merging channels into a single class map")
-    assert len(seg.shape)==4, "Expected (Z, X, Y) or (Z, X, Y, C) segmentation"
-    
-    seg = da.from_array(seg) # Create Dask Array with automatic chunk size
-    channel_info = {} # Record info about unique classes in each channel
-
-    for c in range(seg.shape[-1]):
-        values = da.unique(seg[..., c]).compute()
-        assert len(values)<51, "Over 50 unqiue classes identified - check labels file is correct."
-        channel_info[c] = values
-        print(f"Channel {c} classes: {values}")
-
-    merged = da.zeros(seg.shape[:-1], chunks=chunks, dtype="int16")
-    next_class = 1 #Start re-labelling classes starting at 1
-    
-    for c, values in channel_info.items():
-        for v in values:
-            if v == 0: # Skip background class in each channel
-                continue
-
-            mask = seg[..., c] == v
-            # Check for overlapping classes
-            overlap = da.logical_and(mask, merged!=0)
-            if da.any(overlap).compute():
-                tot = da.sum(overlap).compute()
-                print(f"WARNING: Overlap detected for channel {c}, value {v} ({tot} pixels). Previous label overwritten.")
-
-            merged = da.where(mask, next_class, merged)
-            next_class += 1
-    
-    print("Labels file now has shape "+str(merged.shape)+" with classes "+str(da.unique(merged).compute())+".")
-    
-    return merged
-
-def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
-    """# Pre-processing
-    Load data, downsample if neccessary, normalise and pad.
-    Inputs:
-    image_path = path to image data (string)
-    label_path = path to labels (string)
-    Outputs:
-    img_pad = image data as an np.array, scaled between 0 and 1
-    seg_pad = label data as an np.array, scaled between 0 and 1
-    classes = list of classes present in labels
-    """
-    
-    # Load image
-    print('Loading images from '+str(image_path))
-    img=io.imread(image_path)
-    img=da.from_array(img,chunks=chunks)
-    print('Size '+str(img.shape))
-
-    if len(img.shape)==4:
-        print('Image data has dimensions. Cropping to first 3 dimensions')
-        img=img[:,:,:,0]
-    assert img.ndim == 3, "Expected (Z,X,Y) image"
-    
-    # Normalise 
-    print('Rescaling data between 0 and 1')
-    img_min = da.min(img)
-    denominator = da.nanmax(img)-img_min 
-    img = (img-img_min)/denominator # Rescale between 0 and 1
-    
-    # Set data type
-    img = img.astype('float32')
-    
-	#Repeat for labels is present
-    if label_path is not None:
-        print('Loading labels from '+str(label_path))
-        seg = io.imread(label_path)
-        
-        # Find the number of unique classes in segmented training set
-        if len(seg.shape)>3:
-            # Assume classes are saved as different channels
-            seg = fix_label_format(seg, chunks)
-        else:
-            seg = da.from_array(seg,chunks=chunks)
-            classes = da.unique(seg).compute()
-            
-            assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
-            print('Labels processed with classes '+str(classes))
-            
-            # Check that classes are consecutive integers starting at 0
-            classes=np.sort(classes)
-            is_consecutive = (classes[0] == 0 and np.array_equal(classes, np.arange(len(classes))))
-    
-            # If not - map classes to integer label values starting at 0
-            if not is_consecutive:
-                mapping = {old: new for new, old in enumerate(classes)}
-                seg_mapped = da.zeros_like(seg, dtype=np.int32)
-                for old, new in mapping.items():
-                    seg_mapped[seg==old] = new
-                seg = seg_mapped
-            
-            seg = seg.astype('int16')            
-           		
-        return img, seg
-
-    return img, None
-
-def list_image_files(directory):
-    """ Lists files in a directory. 
-    If given a path to a single file - splits the directory path from the filename.
-    Returns directory path and list of filename."""
-    if os.path.isdir(directory):
-        # Add all file paths of image_paths
-        image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-        image_filenames = sorted(image_filenames) # Sort alphabetically
-    elif os.path.isfile(directory):
-        # If file is given, process this file only
-        directory, image_filenames = os.path.split(directory.replace('\\','/'))
-        image_filenames = [image_filenames]
-    else:
-        return None, None
-    
-    return directory, image_filenames
-
-def crop_from_labels(labels, data):
-    """Crops 3D dask array based on labels.
-    Returns a 3D dask array.""" 
-    iz, ix, iy = da.nonzero(labels) # find instances of non-zero values in X_test along axis 1
-    labels = labels[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1] # use this to index data and labels
-    data = data[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1]
-    print("Cropped to {}".format(data.shape))
-    
-    return labels, data
-
-def split_train_test(labels, data, val_fraction):
-    """"Splits paired images and labels into training and validation sets given a validation fraction.
-    Takes data and labels as dask arrays."""
-    n_training_imgs = int(data.shape[0]-da.floor(data.shape[0]*val_fraction))
-            
-    train_data = data[0:n_training_imgs,...]
-    train_labels = labels[0:n_training_imgs,...]
-            
-    test_data = data[n_training_imgs:,...]
-    test_labels = labels[n_training_imgs:,...]
-    
-    return train_data, train_labels, test_data, test_labels
-            
-def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
-    """"Data (and optionally labels) are saved in chunked zarr format.
-    A data header is created to record image shape, ID and path for data/labels."""
-    # Create header folder if does not exist
-    header_folder=os.path.join(output_path, "headers")
-    if not os.path.exists(header_folder):
-        os.makedirs(header_folder)
-    header_name=os.path.join(header_folder,str(output_name)+"_header")
-    
-    # Rechunk dask array and save as zarr
-    data = data.rechunk(chunks)
-    data.to_zarr(os.path.join(output_path, output_name))
-    
-    from tUbeNet_classes import DataHeader
-    
-    # Repeat of labels if present
-    if labels is not None: 
-        # Rechunk dask array and save as zarr
-        labels = labels.rechunk(chunks)
-        labels.to_zarr(os.path.join(output_path, str(output_name)+"_labels"))
-        
-        # Save data header for easy reading in
-        header = DataHeader(ID=output_name, image_dims=labels.shape, 
-                            image_filename=os.path.join(output_path, output_name),
-                            label_filename=os.path.join(output_path, str(output_name)+"_labels"))
-        header.save(header_name)
-    else:
-        # Save data header for easy reading in, with label_filename=None
-        header = DataHeader(ID=output_name, image_dims=data.shape, 
-                            image_filename=os.path.join(output_path, output_name),
-                            label_filename=None)
-        header.save(header_name)
-        
-    return output_path, header_name
 
 #---------------------------EVALUATION----------------------------------------------------------------------
 

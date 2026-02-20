@@ -123,13 +123,14 @@ class EncoderOnlyOutput(tf.keras.layers.Layer):
 
 """Build Model"""
 class tUbeNet(tf.keras.Model):   
-    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.3, alpha=0.2, attention=False):
+    def __init__(self, n_classes=2, input_dims=(64,64,64), dropout=0.3, alpha=0.2, attention=False, dual_output=False):
         super(tUbeNet,self).__init__()
         self.n_classes=n_classes
         self.input_dims=input_dims
         self.dropout=dropout
         self.alpha=alpha
         self.attention=attention
+        self.dual_output=dual_output
         
     def build_model(self, encoder_only=False):        
         inputs = Input((*self.input_dims, 1))
@@ -144,6 +145,35 @@ class tUbeNet(tf.keras.Model):
         
         if encoder_only:
             output = EncoderOnlyOutput(channels=64, alpha=self.alpha)(block6)
+            
+        elif self.dual_output:
+            # Decoder 1: Mask (vessel segmentation)
+            upblock1_mask = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
+            upblock2_mask = DecodeBlock(channels=256, alpha=self.alpha)(block4, upblock1_mask, attention=self.attention)
+            upblock3_mask = DecodeBlock(channels=128, alpha=self.alpha)(block3, upblock2_mask, attention=self.attention)
+            upblock4_mask = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3_mask, attention=self.attention)
+            upblock5_mask = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4_mask, attention=self.attention)
+            
+            output_mask = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5_mask)
+            
+            # Decoder 2: Skeleton (distance field)
+            # Cross-decoder skip connections: incorporate mask decoder features
+            upblock1_skel = DecodeBlock(channels=512, alpha=self.alpha)(
+                concatenate([block5, upblock1_mask], axis=4), block6, attention=self.attention)
+            upblock2_skel = DecodeBlock(channels=256, alpha=self.alpha)(
+                concatenate([block4, upblock2_mask], axis=4), upblock1_skel, attention=self.attention)
+            upblock3_skel = DecodeBlock(channels=128, alpha=self.alpha)(
+                concatenate([block3, upblock3_mask], axis=4), upblock2_skel, attention=self.attention)
+            upblock4_skel = DecodeBlock(channels=64, alpha=self.alpha)(
+                concatenate([block2, upblock4_mask], axis=4), upblock3_skel, attention=self.attention)
+            upblock5_skel = DecodeBlock(channels=32, alpha=self.alpha)(
+                concatenate([block1, upblock5_mask], axis=4), upblock4_skel, attention=self.attention)
+            
+            # Output single channel for distance map (sigmoid for 0-1 range)
+            output_skeleton = Conv3D(1, (1, 1, 1), activation='sigmoid')(upblock5_skel)
+            
+            # Return list of outputs
+            output = [output_mask, output_skeleton]
             
         else:
             upblock1 = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)

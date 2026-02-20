@@ -4,18 +4,8 @@ U-Net based CNN for vessel segmentation
 
 Developed by Natalie Holroyd (UCL)
 """
-
 #Import libraries
-import os
-import numpy as np
-from skimage import io
-from sklearn.metrics import roc_curve, auc, average_precision_score, precision_recall_curve, precision_recall_fscore_support
-import matplotlib.pyplot as plt
-import dask.array as da
-import zarr
-from tqdm import tqdm
-import tifffile as tiff
-#import pandas as pd
+from functools import partial
 
 # import tensor flow
 import tensorflow as tf
@@ -148,3 +138,192 @@ def diceBCELoss(y_true, y_pred, smooth=1e-6):
     dice_loss = 1-dice(y_true, y_pred, smooth=smooth)
     dice_BCE = (BCE + dice_loss)/2
     return dice_BCE
+
+#-----------------------------------------------------------------------------------------------------------------------
+"""Custom Losses for Skeleton Prediction"""
+
+def skeletonSoftDice(y_true, y_pred, smooth=1e-6):
+    """Soft DICE loss for skeleton/distance field prediction
+    
+    Inputs:
+        y_true: Ground truth distance field (continuous 0-1)
+        y_pred: Predicted distance field (continuous 0-1)
+        smooth: Small epsilon for numerical stability
+    
+    Outputs:
+        dice: Mean soft DICE loss across batch
+    """
+    axes = tuple(range(len(y_pred.shape)-1)) # get axes to reduce along 
+    intersection = tf.reduce_sum(y_true * y_pred, axis=axes)
+    denominator = tf.reduce_sum(y_true + y_pred, axis=axes)
+    dice = (2*intersection+smooth)/(denominator+smooth)
+    return 1 - tf.reduce_mean(dice)  # Return loss (1 - dice)
+
+
+def skeletonOverlapRegularizer(y_mask_pred, y_skeleton_pred, smooth=1e-6):
+    """Regularizer to ensure predicted skeleton stays within predicted mask
+    
+    Encourages skeleton predictions to overlap with vessel mask predictions.
+    Uses cross-entropy between skeleton and binary mask to penalize skeleton 
+    predictions outside the mask.
+    
+    Inputs:
+        y_mask_pred: Predicted mask probabilities (softmax output, shape: B, Z, X, Y, n_classes)
+        y_skeleton_pred: Predicted skeleton distances (sigmoid output, shape: B, Z, X, Y, 1)
+        smooth: Small epsilon for numerical stability
+    
+    Outputs:
+        loss: Regularization loss (lower is better when skeleton overlaps with mask)
+    """
+    # Extract vessel probability from mask (typically class 1 in binary case)
+    # If using softmax, take the positive class probability
+    if len(y_mask_pred.shape) == 5:
+        vessel_prob = y_mask_pred[..., 1]  # Take class 1 (vessel) probability
+    else:
+        vessel_prob = y_mask_pred
+    
+    # Squeeze skeleton to match vessel_prob shape
+    skeleton_pred = tf.squeeze(y_skeleton_pred, axis=-1)
+    
+    # Penalize skeleton predictions where vessel probability is low
+    # Use inverse of vessel probability as weight (penalize where vessels are unlikely)
+    penalty = skeleton_pred * (1 - vessel_prob)
+    
+    # Mean penalty across spatial dimensions
+    loss = tf.reduce_mean(penalty)
+    return loss
+
+
+class LearnableWeightedLoss(tf.keras.losses.Loss):
+    """Custom loss with learnable weights for multi-task learning
+    
+    Combines mask and skeleton losses with learnable temperature-scaled weights.
+    Weights are learned during training via a learnable parameter.
+    
+    Inputs:
+        mask_loss_fn: Loss function for mask prediction
+        skeleton_loss_fn: Loss function for skeleton prediction
+        regularizer_fn: Regularization function
+        init_log_weight_mask: Initial log-scale weight for mask loss (default log(0.5) ≈ -0.69)
+        init_log_weight_skel: Initial log-scale weight for skeleton loss (default log(0.3) ≈ -1.2)
+        init_log_weight_reg: Initial log-scale weight for regularizer (default log(0.2) ≈ -1.6)
+    """
+    def __init__(self, mask_loss_fn, skeleton_loss_fn, regularizer_fn,
+                 init_log_weight_mask=-0.69, init_log_weight_skel=-1.2, init_log_weight_reg=-1.6,
+                 name='learnable_weighted_loss', **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.mask_loss_fn = mask_loss_fn
+        self.skeleton_loss_fn = skeleton_loss_fn
+        self.regularizer_fn = regularizer_fn
+        
+        # Initialize learnable log-space weights (log-space for numerical stability)
+        self.log_weight_mask = tf.Variable(
+            initial_value=init_log_weight_mask, 
+            trainable=True, 
+            name="log_weight_mask"
+        )
+        self.log_weight_skel = tf.Variable(
+            initial_value=init_log_weight_skel, 
+            trainable=True, 
+            name="log_weight_skel"
+        )
+        self.log_weight_reg = tf.Variable(
+            initial_value=init_log_weight_reg, 
+            trainable=True, 
+            name="log_weight_reg"
+        )
+    
+    def call(self, y_true, y_pred):
+        """
+        Inputs:
+            y_true: list [y_true_mask, y_true_skeleton] where:
+                - y_true_mask: One-hot encoded vessel mask (B, Z, X, Y, n_classes)
+                - y_true_skeleton: Binary or distance skeleton (B, Z, X, Y, 1)
+            y_pred: list [y_pred_mask, y_pred_skeleton] where:
+                - y_pred_mask: Softmax vessel prediction (B, Z, X, Y, n_classes)
+                - y_pred_skeleton: Sigmoid skeleton prediction (B, Z, X, Y, 1)
+        
+        Returns:
+            Combined weighted loss
+        """
+        y_true_mask, y_true_skeleton = y_true
+        y_pred_mask, y_pred_skeleton = y_pred
+        
+        # Compute individual losses
+        loss_mask = self.mask_loss_fn(y_true_mask, y_pred_mask)
+        loss_skeleton = self.skeleton_loss_fn(y_true_skeleton, y_pred_skeleton)
+        loss_regularizer = self.regularizer_fn(y_pred_mask, y_pred_skeleton)
+        
+        # Convert log-space weights to linear space and normalize
+        weight_mask = tf.exp(self.log_weight_mask)
+        weight_skel = tf.exp(self.log_weight_skel)
+        weight_reg = tf.exp(self.log_weight_reg)
+        
+        total_weight = weight_mask + weight_skel + weight_reg
+        weight_mask = weight_mask / total_weight
+        weight_skel = weight_skel / total_weight
+        weight_reg = weight_reg / total_weight
+        
+        # Combine losses
+        combined_loss = (weight_mask * loss_mask + 
+                         weight_skel * loss_skeleton + 
+                         weight_reg * loss_regularizer)
+        
+        return combined_loss
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            'mask_loss_fn': self.mask_loss_fn,
+            'skeleton_loss_fn': self.skeleton_loss_fn,
+            'regularizer_fn': self.regularizer_fn,
+        })
+        return config
+
+
+def create_dual_task_loss(mask_loss='dice_bce', class_weights=None, 
+                          init_log_weight_mask=-0.69, init_log_weight_skel=-1.2, 
+                          init_log_weight_reg=-1.6):
+    """
+    Factory function to create a dual-task loss with learnable weights
+    
+    Inputs:
+        mask_loss: Name of loss function for mask ('dice_bce', 'dice_ce', 'wcce')
+        class_weights: Class weights for weighted losses (None or tuple)
+        init_log_weight_mask: Initial log-scale weight for mask loss
+        init_log_weight_skel: Initial log-scale weight for skeleton loss
+        init_log_weight_reg: Initial log-scale weight for regularizer
+    
+    Outputs:
+        loss_fn: Compiled LearnableWeightedLoss instance
+    """
+    # Select mask loss function
+    if mask_loss.lower() == 'dice_bce':
+        mask_loss_fn = partial(diceBCELoss, smooth=1e-6)
+    elif mask_loss.lower() == 'dice_ce':
+        mask_loss_fn = partial(diceCELoss, smooth=1e-6)
+    elif mask_loss.lower() == 'wcce':
+        if class_weights is None:
+            raise ValueError("class_weights required for weighted crossentropy")
+        mask_loss_fn = partial(weighted_crossentropy, weights=class_weights)
+    else:
+        raise ValueError(f"Unknown mask_loss: {mask_loss}")
+    
+    # Skeleton loss is always soft DICE
+    skeleton_loss_fn = partial(skeletonSoftDice, smooth=1e-6)
+    
+    # Regularizer function
+    regularizer_fn = skeletonOverlapRegularizer
+    
+    # Create learnable loss
+    loss = LearnableWeightedLoss(
+        mask_loss_fn=mask_loss_fn,
+        skeleton_loss_fn=skeleton_loss_fn,
+        regularizer_fn=regularizer_fn,
+        init_log_weight_mask=init_log_weight_mask,
+        init_log_weight_skel=init_log_weight_skel,
+        init_log_weight_reg=init_log_weight_reg
+    )
+    
+    return loss
+

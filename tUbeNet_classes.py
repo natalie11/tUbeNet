@@ -22,157 +22,211 @@ import dask.array as da
 from tensorflow.keras.utils import Sequence, to_categorical #np_utils
 #---------------------------------------------------------------------------------------------------------------------------------------------
 class DataHeader:
-    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None):
-	    'Initialization' 
-	    self.ID = ID
-	    self.image_dims = image_dims
-	    self.image_filename = image_filename
-	    self.label_filename = label_filename
+    def __init__(self, ID=None, image_dims=(1024,1024,1024), image_filename=None, label_filename=None, skeleton_filename=None):
+        'Initialization' 
+        self.ID = ID
+        self.image_dims = image_dims
+        self.image_filename = image_filename
+        self.label_filename = label_filename
+        self.skeleton_filename = skeleton_filename
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 class DataDir:
-	def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, data_type='float64', exclude_region=None):
-	    'Initialization'    
-	    self.image_dims = image_dims
-	    self.image_filenames = image_filenames
-	    self.label_filenames = label_filenames
-	    self.list_IDs = list_IDs
-	    self.data_type = data_type
-	    self.exclude_region = exclude_region
+    def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, skeleton_filenames=None, data_type='float64', exclude_region=None):
+        'Initialization'    
+        self.image_dims = image_dims
+        self.image_filenames = image_filenames
+        self.label_filenames = label_filenames
+        self.skeleton_filenames = skeleton_filenames
+        self.list_IDs = list_IDs
+        self.data_type = data_type
+        self.exclude_region = exclude_region
 
 class DataGenerator(Sequence):
-	def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
-              dataset_weighting=None, augment=False, vessel_threshold=0.001, **kwargs):
-	    'Initialization'
-	    super().__init__(**kwargs) 
+    def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
+                 dataset_weighting=None, augment=False, vessel_threshold=0.001, skeleton_available=False, **kwargs):
+        'Initialization'
+        super().__init__(**kwargs) 
         
-	    self.volume_dims = volume_dims
-	    self.batch_size = batch_size
-	    self.shuffle = shuffle
-	    self.data_dir = data_dir
-	    self.on_epoch_end()
-	    self.n_classes = n_classes
-	    self.dataset_weighting = dataset_weighting
-	    self.augment = augment
-	    self.vessel_threshold = vessel_threshold
+        self.volume_dims = volume_dims
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.data_dir = data_dir
+        self.on_epoch_end()
+        self.n_classes = n_classes
+        self.dataset_weighting = dataset_weighting
+        self.augment = augment
+        self.vessel_threshold = vessel_threshold
+        self.skeleton_available = skeleton_available
         
         # Open zarr arrays
-	    self._images = [da.from_zarr(p) for p in self.data_dir.image_filenames]
-	    self._labels = [da.from_zarr(p) for p in self.data_dir.label_filenames]
-	    
-	def __len__(self):
-		'Denotes the max number of batches per epoch'
-		batches=0 
-		for i in range(len(self.data_dir.list_IDs)):
-		    batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
-		    batches += batches_per_dataset
-		return batches
-	
-	def __getitem__(self, index):
-		'Generate one batch of data'
-		# randomly generate list of IDs for batch, weighted according to given 'dataset_weighting' if not None
-		if len(self.data_dir.list_IDs)>2:
-		    list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
-		else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
-		# Generate data
-		X, y = self.__data_generation(list_IDs_temp)
-		if self.augment: 
-		    self._augmentation(X,y)
+        self._images = [da.from_zarr(p) for p in self.data_dir.image_filenames]
+        self._labels = [da.from_zarr(p) for p in self.data_dir.label_filenames]
+        
+        # Open skeleton arrays if available
+        if skeleton_available and self.data_dir.skeleton_filenames is not None:
+            self._skeletons = [da.from_zarr(p) for p in self.data_dir.skeleton_filenames]
+        else:
+            self._skeletons = None
+    
+    def __len__(self):
+        'Denotes the max number of batches per epoch'
+        batches=0 
+        for i in range(len(self.data_dir.list_IDs)):
+            batches_per_dataset = int(np.floor(np.prod(self.data_dir.image_dims[i])/np.prod(self.volume_dims)))
+            batches += batches_per_dataset
+        return batches
+    
+    def __getitem__(self, index):
+        'Generate one batch of data'
+        # randomly generate list of IDs for batch, weighted according to given 'dataset_weighting' if not None
+        if len(self.data_dir.list_IDs)>2:
+            list_IDs_temp = random.choices(self.data_dir.list_IDs, weights=self.dataset_weighting, k=self.batch_size)
+        else: list_IDs_temp=[self.data_dir.list_IDs[0]]*self.batch_size
+        # Generate data
+        if self.skeleton_available:
+            X, y_mask, y_skeleton = self.__data_generation(list_IDs_temp)
+            if self.augment: 
+                self._augmentation(X, y_mask, y_skeleton)
+            
+            # Reshape to add depth of 1, one hot encode mask labels
+            X = X.reshape(*X.shape, 1)
+            y_mask = to_categorical(y_mask, num_classes=self.n_classes)
+            # Reshape skeleton to add channel dimension (keep as float)
+            y_skeleton = y_skeleton.reshape(*y_skeleton.shape, 1)
+            
+            return X, [y_mask, y_skeleton]
+        else:
+            X, y = self.__data_generation(list_IDs_temp)
+            if self.augment: 
+                self._augmentation(X, y)
 
-		# Reshape to add depth of 1, one hot encode labels
-		X = X.reshape(*X.shape, 1)
-		y = to_categorical(y, num_classes=self.n_classes)
-		return X, y
-	    
-	def on_epoch_end(self):
-	    'Updates indexes after each epoch'
-	    self.indexes = np.arange(len(self.data_dir.list_IDs))
-	    if self.shuffle == True:
-		    np.random.shuffle(self.indexes)
+            # Reshape to add depth of 1, one hot encode labels
+            X = X.reshape(*X.shape, 1)
+            y = to_categorical(y, num_classes=self.n_classes)
+            return X, y
+    
+    def on_epoch_end(self):
+        'Updates indexes after each epoch'
+        self.indexes = np.arange(len(self.data_dir.list_IDs))
+        if self.shuffle == True:
+            np.random.shuffle(self.indexes)
+    
+    def random_coordinates(self, image_dims, exclude_region):
+        coords=np.zeros(3)
+        for ax in range(3):
+            coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
+            if exclude_region[ax] is not None:
+                exclude = range(exclude_region[ax][0]-self.volume_dims[ax], exclude_region[ax][1])
+                while coords[ax] in exclude: # if coordinate falls in excluded region, generate new coordinate
+                    coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
+        
+        return coords
+    
+    def __data_generation(self, list_IDs_temp):
+        'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
+        # Initialization
+        X = np.empty((self.batch_size, *self.volume_dims))
+        y_mask = np.empty((self.batch_size, *self.volume_dims))
+        y_skeleton = None
+        if self.skeleton_available:
+            y_skeleton = np.empty((self.batch_size, *self.volume_dims), dtype=np.float32)
+        
+        for i, ID_temp in enumerate(list_IDs_temp):
+            index=self.data_dir.list_IDs.index(ID_temp)
             
-		    
-	def random_coordinates(self, image_dims, exclude_region):
-	    coords=np.zeros(3)
-	    for ax in range(3):
-		    coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
-		    if exclude_region[ax] is not None:
-	    	     exclude = range(exclude_region[ax][0]-self.volume_dims[ax], exclude_region[ax][1])
-	    	     while coords[ax] in exclude: # if coordinate falls in excluded region, generate new coordinate
-	    	        coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
-                
-	    return coords
-		    
-	def __data_generation(self, list_IDs_temp):
-		'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-		# Initialization
-		X = np.empty((self.batch_size, *self.volume_dims))
-		y = np.empty((self.batch_size, *self.volume_dims))
-		for i, ID_temp in enumerate(list_IDs_temp):
-			index=self.data_dir.list_IDs.index(ID_temp)
+            X_da = self._images[index]
+            y_da = self._labels[index]
             
-			X_da = self._images[index]
-			y_da = self._labels[index]
-            
-			vessels_present=False
-			count=0
-			while not vessels_present:
+            vessels_present=False
+            count=0
+            while not vessels_present:
                 #Generate random coordinates within dataset
-				count+=1
-				z0, x0, y0 = self.random_coordinates(self.data_dir.image_dims[index], 
+                count+=1
+                z0, x0, y0 = self.random_coordinates(self.data_dir.image_dims[index], 
                                                     self.data_dir.exclude_region[index])
-				dz, dx, dy = self.volume_dims
+                dz, dx, dy = self.volume_dims
                 #Load labels at coordinates
-				y_slice = y_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
-				y_slice = y_slice.compute()  # brings just this sub-volume to RAM as np.array
+                y_slice = y_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
+                y_slice = y_slice.compute()  # brings just this sub-volume to RAM as np.array
                 
                 #Check fraction of pixels classed as vessel in labels before loading in image data
-				frac = y_slice.astype(bool).mean()
-				if frac>self.vessel_threshold or count>5: vessels_present=True
-				if vessels_present:
-					X_slice = X_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
-					X_slice = X_slice.compute() 
+                frac = y_slice.astype(bool).mean()
+                if frac>self.vessel_threshold or count>5: vessels_present=True
+                if vessels_present:
+                    X_slice = X_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
+                    X_slice = X_slice.compute() 
                     
-			X[i]=X_slice.astype(np.float32)
-			y[i]=y_slice.astype(np.int32)
-		return X, y
-       
-	def _augmentation(self, X, y):
-	    # Apply data augmentations to each image/label pair in batch
-	    for i in range(self.batch_size):
-		    #Rotate
-		    angle = np.random.uniform(-30,30, size=1)
-		    X[i] = rotate(X[i], angle.item(), reshape=False, order=3, mode='reflect')
-		    y[i] = rotate(y[i], angle.item(), reshape=False, order=0, mode='reflect')
-		    #Zoom and crop
-		    scale = np.random.uniform(1.0,1.25, size=1)
-		    Xzoom = zoom(X[i], scale.item(), order=3, mode='reflect')
-		    yzoom = zoom(y[i], scale.item(), order=0, mode='reflect')
-		    (d,h,w)=X[i].shape
-		    (dz,hz,wz)=Xzoom.shape
-		    dz=int((dz-d)//2)
-		    hz=int((hz-h)//2)
-		    wz=int((wz-w)//2)
-		    X[i]=Xzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
-		    y[i]=yzoom[dz:int(dz+d), hz:int(hz+h), wz:int(wz+w)]
-		    #Flip
-		    #NB: do not flip in z axis due to asymmetric PSF in HREM data
-		    axes = np.random.randint(4, size=1)
-		    if axes==0:
-	    	        #flip in x axis
-	    	        X[i] = np.flip(X[i],1) 
-	    	        y[i] = np.flip(y[i],1)
-		    elif axes==1:
-	    	        #flip in y axis
-	    	        X[i] = np.flip(X[i],2) 
-	    	        y[i] = np.flip(y[i],2)
-		    elif axes==2:
-	    	        #flip in x and y axis
-	    	        X[i] = np.flip(X[i],(1,2)) 
-	    	        y[i] = np.flip(y[i],(1,2)) 
-		    #if axes==3, no flip
-	    return X, y
+                    # Load skeleton if available
+                    if self.skeleton_available and self._skeletons is not None:
+                        skeleton_da = self._skeletons[index]
+                        skeleton_slice = skeleton_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
+                        skeleton_slice = skeleton_slice.compute()
+            
+            X[i]=X_slice.astype(np.float32)
+            y_mask[i]=y_slice.astype(np.int32)
+            if self.skeleton_available and self._skeletons is not None:
+                y_skeleton[i]=skeleton_slice.astype(np.float32)
+        
+        if self.skeleton_available:
+            return X, y_mask, y_skeleton
+        else:
+            return X, y_mask
+    
+    def _augmentation(self, X, y_mask, y_skeleton=None):
+        # Apply data augmentations to each image/label pair in batch
+        for i in range(self.batch_size):
+            #Rotate
+            angle = np.random.uniform(-30,30, size=1)
+            X[i] = rotate(X[i], angle.item(), reshape=False, order=3, mode='reflect')
+            y_mask[i] = rotate(y_mask[i], angle.item(), reshape=False, order=0, mode='reflect')
+            if y_skeleton is not None:
+                y_skeleton[i] = rotate(y_skeleton[i], angle.item(), reshape=False, order=1, mode='reflect')
+            
+            #Zoom and crop
+            scale = np.random.uniform(1.0,1.25, size=1)
+            Xzoom = zoom(X[i], scale.item(), order=3, mode='reflect')
+            y_maskzoom = zoom(y_mask[i], scale.item(), order=0, mode='reflect')
+            y_skelzoom = None
+            if y_skeleton is not None:
+                y_skelzoom = zoom(y_skeleton[i], scale.item(), order=1, mode='reflect')
+            
+            (d,h,w)=X[i].shape
+            (dz,hz,wz)=Xzoom.shape
+            dz_off=int((dz-d)//2)
+            hz_off=int((hz-h)//2)
+            wz_off=int((wz-w)//2)
+            
+            X[i]=Xzoom[dz_off:int(dz_off+d), hz_off:int(hz_off+h), wz_off:int(wz_off+w)]
+            y_mask[i]=y_maskzoom[dz_off:int(dz_off+d), hz_off:int(hz_off+h), wz_off:int(wz_off+w)]
+            if y_skeleton is not None:
+                y_skeleton[i]=y_skelzoom[dz_off:int(dz_off+d), hz_off:int(hz_off+h), wz_off:int(wz_off+w)]
+            
+            #Flip
+            #NB: do not flip in z axis due to asymmetric PSF in HREM data
+            axes = np.random.randint(4, size=1)
+            if axes==0:
+                #flip in x axis
+                X[i] = np.flip(X[i],1) 
+                y_mask[i] = np.flip(y_mask[i],1)
+                if y_skeleton is not None:
+                    y_skeleton[i] = np.flip(y_skeleton[i],1)
+            elif axes==1:
+                #flip in y axis
+                X[i] = np.flip(X[i],2) 
+                y_mask[i] = np.flip(y_mask[i],2)
+                if y_skeleton is not None:
+                    y_skeleton[i] = np.flip(y_skeleton[i],2)
+            elif axes==2:
+                #flip in x and y axis
+                X[i] = np.flip(X[i],(1,2)) 
+                y_mask[i] = np.flip(y_mask[i],(1,2))
+                if y_skeleton is not None:
+                    y_skeleton[i] = np.flip(y_skeleton[i],(1,2))
+            #if axes==3, no flip
+        return X, y
     
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
