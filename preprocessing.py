@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Sep  3 16:04:47 2025
-
-@author: natalie
-"""
-
  # -*- coding: utf-8 -*-
 """tUbeNet 3D 
 Data Preprocessing script: load image data (and optional labels) and convert into zarr format with data header
@@ -16,7 +8,6 @@ Developed by Natalie Holroyd (UCL)
 
 #Import libraries
 import os
-import numpy as np
 import tUbeNet_functions as tube
 import argparse
 
@@ -35,32 +26,25 @@ def main(args):
         
     #----------------------------------------------------------------------------------------------------------------------------------------------
     # Create list of image files
-    if os.path.isdir(image_directory):
-        # Add all file paths of image_paths
-        image_filenames = [f for f in os.listdir(image_directory) if os.path.isfile(os.path.join(image_directory, f))]
-    elif os.path.isfile(image_directory):
-        # If file is given, process this file only
-        image_directory, image_filenames = os.path.split(image_directory.replace('\\','/'))
-        image_filenames = [image_filenames]
-    else: raise ValueError('Image directory could not be found')
+    image_directory, image_filenames = tube.list_image_files(image_directory) 
+    if image_directory==None: raise ValueError('Image directory could not be found')
     
     # Create list of label files
     if label_directory is not None:
-        if os.path.isdir(label_directory):
-            # Add all file paths of image_paths
-            label_filenames = [f for f in os.listdir(label_directory) if os.path.isfile(os.path.join(label_directory, f))]
-        elif os.path.isfile(label_directory):
-            # If file is given, process this file only (split filename from rest of path)
-            label_directory, label_filenames = os.path.split(label_directory.replace('\\','/'))
-            label_filenames = [label_filenames]
-        else: raise ValueError('A label directory was provided but could not be found. Set label_directory to None if not using.')
-        
-        assert len(image_filenames)==len(label_filenames), "Expected same number of image and label files. Set label_directory to None if not using."
+        label_directory, label_filenames = tube.list_image_files(label_directory)
+        if label_directory==None: 
+            raise ValueError('A label directory was provided but could not be found. Set label_directory to None if not using labels.')
+        assert len(image_filenames)==len(label_filenames), "Expected same number of image and label files. Set label_directory to None if not using labels."
     else:
         label_filenames = [None]*len(image_filenames)
-    
-       
+         
     # Process and save each dataset in directory
+    print("Image files:")
+    print(*image_filenames, sep="\n")
+    if label_directory is not None:
+        print("Label files:")
+        print(*label_filenames, sep="\n")   
+    
     for image_filename, label_filename in zip(image_filenames, label_filenames):
         # Set names and paths
         output_name = os.path.splitext(image_filename)[0]
@@ -70,14 +54,10 @@ def main(args):
         else: label_path = None
             
         # Run preprocessing
-        data, labels, classes = tube.data_preprocessing(image_path=image_path, 
-                                                        label_path=label_path)
-        
-        # Set data type
-        data = data.astype('float32')
-        if labels is not None:
-            labels = labels.astype('int8')
-        
+        data, labels = tube.data_preprocessing(image_path=image_path, 
+                                                        label_path=label_path,
+                                                        chunks=chunks)
+
         # Crop
         if crop and labels is not None:
             labels, data = tube.crop_from_labels(labels, data)
@@ -85,13 +65,7 @@ def main(args):
         # Split into test and train
         if val_fraction > 0 and labels is not None:
             
-            n_training_imgs = int(data.shape[0]-np.floor(data.shape[0]*val_fraction))
-            
-            train_data = data[0:n_training_imgs,...]
-            train_labels = labels[0:n_training_imgs,...]
-            
-            test_data = data[n_training_imgs:,...]
-            test_labels = labels[n_training_imgs:,...]
+            train_data, train_labels, test_data, test_labels = tube.split_train_test(labels, data, val_fraction)
             
             # Create folders
             train_folder = os.path.join(output_path,"train")
@@ -107,21 +81,21 @@ def main(args):
             # Save train data
             train_name = str(output_name)+"_train"
             
-            train_path, train_header = tube.save_as_dask_array(train_data, labels=train_labels, 
+            train_path, train_header = tube.save_as_zarr_array(train_data, labels=train_labels, 
                                                                output_path=train_folder, 
                                                                output_name=train_name, 
                                                                chunks=chunks)
             print("Processed training data and header files saved to "+str(train_path))
             
             # Save test data
-            test_path, test_header = tube.save_as_dask_array(test_data, labels=test_labels, 
+            test_path, test_header = tube.save_as_zarr_array(test_data, labels=test_labels, 
                                                                output_path=test_folder, 
                                                                output_name=test_name, 
                                                                chunks=chunks)
             print("Processed test data and header files saved to "+str(test_path))
             
         else:
-            save_path, save_header = tube.save_as_dask_array(data, labels=labels, 
+            save_path, save_header = tube.save_as_zarr_array(data, labels=labels, 
                                                                output_path=output_path, 
                                                                output_name=output_name, 
                                                                chunks=chunks)

@@ -20,9 +20,8 @@ def main(args):
     # Paramters
     volume_dims = args.volume_dims
     overlap = args.overlap
-    n_classes = 2 #TO DO expand to handel multi-class case
-    
-    binary_output = args.binary_output
+    n_classes = args.n_classes  #TO DO expand to handel multi-class case
+
     preview = args.preview
     attention = args.attention
 
@@ -64,7 +63,7 @@ def main(args):
     # Initialise model
     tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
     # Load weights
-    model = tubenet.load_weights(filename=model_path, loss='DICE BCE')
+    model = tubenet.load_weights(filename=model_path, loss='DICE CE')
     
     # If undefined set overlap to half volume_dims
     if not overlap:
@@ -88,9 +87,7 @@ def main(args):
             overlap=overlap,       
             n_classes=n_classes,
             export_bigtiff=tiff_name,
-            preview=preview,          
-            binary_output=binary_output, 
-            prob_channel=1,   
+            preview=preview   
         )
 
 def parse_dims(values):
@@ -129,6 +126,8 @@ if __name__ == "__main__":
                         help="Display preview of predicted segmentation during inference.")
     parser.add_argument("--attention", action="store_true",
                         help="Use this flag if loading a tubenet model built with attention blocks") 
+    parser.add_argument("--n_classes", type=int, default=2,
+                        help="Number of classes to predict. Ensure this is the same for all data.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)

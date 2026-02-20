@@ -7,7 +7,7 @@ Created on Wed Jun  8 13:21:04 2022
 #Import libraries
 import os
 from functools import partial
-import tUbeNet_functions as tube
+import tUbeNet_metrics as metrics
 
 # import required objects and fuctions from keras
 from tensorflow.keras.models import Model
@@ -29,10 +29,10 @@ K.set_image_data_format('channels_last')
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
   for gpu in physical_devices:
-      tf.config.set_memory_growth(gpu, True)
+      tf.config.experimental.set_memory_growth(gpu, True)
 except:
   pass
-
+tf.config.optimizer.set_experimental_options({"remapping": False})
 
 """Model blocks"""
 class AttnBlock(tf.keras.layers.Layer):
@@ -73,12 +73,15 @@ class DecodeBlock(tf.keras.layers.Layer):
 		super(DecodeBlock,self).__init__()
 		self.transpose = Conv3DTranspose(channels, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_uniform')
 		self.conv = Conv3D(channels, (3, 3, 3), activation= 'linear', padding='same', kernel_initializer='he_uniform')
+		self.attn = AttnBlock(channels=channels)
 		self.norm = GroupNormalization(groups=int(channels/4), axis=4)
 		self.lrelu = LeakyReLU(negative_slope=alpha)
 		self.channels = channels
+	def build(self, input_shape):
+		super().build(input_shape)
 	def call (self, skip, x, attention=False):
 		if attention:
-			attn = AttnBlock(channels=self.channels)(skip, x)
+			attn = self.attn(skip, x)
 		else:
 			attn = concatenate([skip, x], axis=4)
 		transpose = self.transpose(attn)
@@ -157,13 +160,31 @@ class tUbeNet(tf.keras.Model):
     def selectLoss(self, loss_name, class_weights=None):
         """select loss from custom losses"""
         if loss_name == 'WCCE':
-            custom_loss=partial(tube.weighted_crossentropy, weights=class_weights)
-            custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = tube.weighted_crossentropy.__module__
+            # Check class_weights are sensible - if not default to categorical crossentropy
+            if class_weights is None:
+                print("No class weights provided, using unweighted categorical crossentropy")
+                custom_loss='categorical_crossentropy'
+            elif len(class_weights)!=self.n_classes:
+                print("Number of class weights does not match number of classes, using unweighted categorical crossentropy")
+                custom_loss='categorical_crossentropy'
+            else:
+                custom_loss=partial(metrics.weighted_crossentropy, weights=class_weights)
+                custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+                custom_loss.__module__ = metrics.weighted_crossentropy.__module__
         elif loss_name == 'DICE BCE':
-            custom_loss=partial(tube.DiceBCELoss,smooth=1e-6)
+            if self.n_classes==2:
+                custom_loss=partial(metrics.diceBCELoss,smooth=1e-6)
+                custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+                custom_loss.__module__ = metrics.diceBCELoss.__module__
+            else:
+                print("DICE BCE can only be used with binary labels. Using DICE CE instead.")
+                custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
+                custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
+                custom_loss.__module__ = metrics.diceCELoss.__module__
+        elif loss_name == 'DICE CE':
+            custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
-            custom_loss.__module__ = tube.DiceBCELoss.__module__
+            custom_loss.__module__ = metrics.diceCELoss.__module__
         elif loss_name == 'focal':
             custom_loss=tf.keras.losses.CategoricalFocalCrossentropy(alpha=0.2, gamma=5)
         else:
@@ -171,7 +192,8 @@ class tUbeNet(tf.keras.Model):
             custom_loss='categorical_crossentropy'   
         return custom_loss
   
-    def create(self, loss=None, class_weights=(1,1), learning_rate=1e-3, metrics=['accuracy'], encoder_only=False):
+    def create(self, loss=None, class_weights=(1,1), learning_rate=1e-3, 
+               metrics=['accuracy'], encoder_only=False):
         custom_loss = self.selectLoss(loss,class_weights)
         
         #Check for multiple GPUs
@@ -210,12 +232,14 @@ class tUbeNet(tf.keras.Model):
         
         # create path for file containing weights
         if filename is None:
-            raise ValueError("model weights filename must be provided")
-        if os.path.isfile(filename+'.h5'):
+            raise ValueError("Model weights filename must be provided")
+        if os.path.isfile(filename):
+            mfile=filename
+        elif os.path.isfile(filename+'.h5'):
             mfile = filename+'.h5'
         elif os.path.isfile(filename+'.hdf5'):
             mfile = (filename+'.hdf5')
-        else: mfile=filename
+        else: raise ValueError("Could not locate model weights file at {}".format(filename))
         
         custom_loss=self.selectLoss(loss,class_weights)
         
@@ -226,8 +250,20 @@ class tUbeNet(tf.keras.Model):
     	           with strategy.scope():
     	                  model = self.build_model()
     	                  # load weights into new model
-    	                  model.load_weights(mfile)
-                          
+    	                  try:
+                              model.load_weights(mfile)
+    	                  except Exception as e:
+                              if self.n_classes >2:
+                                  # Likely using the publically avaiable binary pre-trained weights for a multi-class model
+                                  try:
+                                      # Build a base model with binary classifier - this will be replaced later
+                                      model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
+                                                           alpha=self.alpha, attention=self.attention).build_model()
+                                      # Load weights from mfile
+                                      model.load_weights(mfile)
+                                  except: print(e) # If this doesn't work - revert to original error message
+                              else: print(e) # 
+                              
     	                  # recover the output from the last layer in the model and use as input to new Classifer
     	                  last = model.layers[-2].output
     	                  classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
@@ -239,7 +275,19 @@ class tUbeNet(tf.keras.Model):
             else:
     	           model = self.build_model()
     	           # load weights into new model
-    	           model.load_weights(mfile)
+    	           try:
+                       model.load_weights(mfile)
+    	           except Exception as e:
+                           if self.n_classes >2:
+                               # Likely using the publically avaiable binary pre-trained weights for a multi-class model
+                               try:
+                                   # Build a base model with binary classifier - this will be replaced later
+                                   model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
+                                                        alpha=self.alpha, attention=self.attention).build_model()
+                                   # Load weights from mfile
+                                   model.load_weights(mfile)
+                               except: print(e) # If this doesn't work - revert to original error message
+                           else: print(e) # 
                           
     	           # recover the output from the last layer in the model and use as input to new Classifer
     	           last = model.layers[-2].output

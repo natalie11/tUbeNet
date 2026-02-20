@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 from skimage import io
-from sklearn.metrics import roc_curve, auc, average_precision_score, PrecisionRecallDisplay, precision_recall_curve, precision_score, recall_score
+from sklearn.metrics import roc_curve, auc, average_precision_score, precision_recall_curve
 import matplotlib.pyplot as plt
 import dask.array as da
 import zarr
@@ -31,61 +31,9 @@ try:
       tf.config.experimental.set_memory_growth(gpu, True)
 except:
   pass
-
-
-#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-"""Custom metrics"""
-# Use when y_true/y_pred are np arrays rather than keras tensors
-def precision_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false positive
-	FP = np.sum(np.logical_and(np.equal(y_true,0),np.equal(y_pred,1)))
-	precision1=TP/(TP+FP)
-	return precision1
-
-def recall_logical(y_true, y_pred):
-	#true positive
-	TP = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,1)))
-	#false negative
-	FN = np.sum(np.logical_and(np.equal(y_true,1),np.equal(y_pred,0)))
-	recall1=TP/(TP+FN)
-	return recall1
-
-# Use when y_treu/ y_pred are keras tensors - for passing to model
-def precision(y_true, y_pred):
-    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
-    y_true = tf.cast(y_true, tf.float32)
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred[...,1], 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-
-def recall(y_true, y_pred):
-    y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
-    y_true = tf.cast(y_true, tf.float32)
-    true_positives = K.sum(K.round(K.clip(y_true[...,1] * y_pred[...,1], 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true[...,1], 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-
-def dice(y_true, y_pred):
-    P = precision(y_true, y_pred)
-    R = recall(y_true, y_pred)
-    dice = 2*(P*R)/(P+R+K.epsilon())
-    return dice
-
-"""Custom Losses"""
-def weighted_crossentropy(y_true, y_pred, weights):
-	"""Custom loss function - weighted to address class imbalance"""
-	weight_mask = y_true[...,0] * weights[0] + y_true[...,1] * weights[1]
-	return K.categorical_crossentropy(y_true, y_pred,) * weight_mask
-
-def DiceBCELoss(y_true, y_pred, smooth=1e-6):    
-    BCE = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice_loss = 1-dice(y_true, y_pred)
-    Dice_BCE = (BCE + dice_loss)/2
-    return Dice_BCE
+tf.config.optimizer.set_experimental_options({
+    "remapping": False
+})
 
 #---------------------------INFERENCE------------------------------------------------------------------------------------------------------------------------
 				
@@ -98,13 +46,11 @@ def predict_segmentation_dask(
     n_classes=2,                # softmax classes produced by model
     export_bigtiff=None,        # e.g. "/path/dataset_pred.tif" to export 3D TIFF (optional)
     preview=False,              # Preview segmentation for every slab of subvolumes processed in the z axis
-    binary_output=False,        # if True: Reverrses one hot encoding to give pixel values = class index; else softmax output for foreground channel only
-    prob_channel=1,             # which channel to export if binary_output=False (for 2-class, 1 is foreground prob)
 ):
     """
     Sliding-window inference with smooth blending.
     Writes two Zarr datasets on disk during accumulation: 'sum' and 'wsum'.
-    Final result is written as 'seg' (either class indices or a single-channel probability).
+    Final result is written as 'labels' and 'softmax'.
     Optionally, writes a BigTIFF 3D volume without holding everything in RAM.
     """
 
@@ -227,10 +173,20 @@ def predict_segmentation_dask(
                 # Read single slice
                 preview_sum = sum_arr[z_mid_slice, :, :, :].astype(np.float32)
                 preview_w = wsum_arr[z_mid_slice, :, :, :].astype(np.float32)
-                # Normalise to accumulated weights, avoid division by zero
-                preview_pred = np.where(preview_w[..., 0] > 0, preview_sum[..., prob_channel] / np.maximum(preview_w[..., 0], 1e-8), 0.0)
+                
+                # Normalise to accumulated weights, avoid division by zero. preview_pred shape is (X Y C).
+                preview_pred = np.where(preview_w > 0, preview_sum/ np.maximum(preview_w, 1e-8), 0.0)
+                
+                # If n_classes>2 reverse OHE. otherwise print softmax output for foreground class
+                if n_classes >2:
+                    preview_pred = np.argmax(preview_pred, axis=-1)
+                else:
+                    preview_pred = preview_pred[...,1]
+                    
+                # Remove padding. Preview_pred shape now (X, Y)
                 preview_pred = preview_pred[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
-                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]  # Remove padding (X,Y)
+                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+                
                 # Also read the corresponding input slice
                 orig_slice = img[z_mid_slice, :, :].compute()
                 orig_slice = orig_slice[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
@@ -247,37 +203,25 @@ def predict_segmentation_dask(
                       pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
 
     # Normalize and write final zarr
-    # Create output 'seg' dataset
-    if binary_output:
-        # class map (argmax): store as uint8 (or change dtype if you have >255 classes)
-        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
-        # Process chunk-by-chunk to avoid OOM
-        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
-            z0 = zi * stride[0]
-            z1 = z0 + volume_dims[0]
-            
-            # load a slab of weighted sums and weights
-            slab_sum = sum_arr[z0:z1, :, :, :]        # (vz,X,Y,C)
-            slab_w   = wsum_arr[z0:z1, :, :, 0:1]     # (vz,X,Y,1)
-            slab_sum = np.array(slab_sum)             # bring to RAM slab only
-            slab_w   = np.array(slab_w)
-            probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
-            seg[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
-    else:
-        # store forground probability as float32
-        seg = root.create_dataset("seg", shape=(Z, X, Y), chunks=volume_dims, dtype="float32")
-        for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
-            z0 = zi * stride[0]
-            z1 = z0 + volume_dims[0]
-            
-            # load a slab of weighted sums (foreground channel only) and weights
-            slab_sum = sum_arr[z0:z1, :, :, prob_channel:prob_channel+1]   # (vz,X,Y,1)
-            slab_w   = wsum_arr[z0:z1, :, :, 0:1]                          # (vz,X,Y,1)
-            slab_sum = np.array(slab_sum)
-            slab_w   = np.array(slab_w)
-            prob = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)[..., 0]  # (vz,X,Y)
-            seg[z0:z1, :, :] = prob
-            
+    # Create output store
+    labels = root.create_dataset("labels", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
+    softmax = root.create_dataset("softmax", shape=(Z, X, Y, n_classes), chunks=(*volume_dims, n_classes), dtype="float32")
+    
+    # Process chunk-by-chunk to avoid OOM
+    for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
+        z0 = zi * stride[0]
+        z1 = z0 + volume_dims[0]
+        
+        # load a slab of weighted sums and weights
+        slab_sum = sum_arr[z0:z1, :, :, :]        # (vz,X,Y,C)
+        slab_w   = wsum_arr[z0:z1, :, :, 0:1]     # (vz,X,Y,1)
+        slab_sum = np.array(slab_sum)             # bring to RAM slab only
+        slab_w   = np.array(slab_w)
+        probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
+        
+        softmax[z0:z1, :, :, :]  =  probs      
+        labels[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
+
     # Delete sum_arr and wsum_arr now that we're finished with them
     del root["sum"]
     del root["wsum"]
@@ -286,13 +230,53 @@ def predict_segmentation_dask(
     if export_bigtiff:
         with tiff.TiffWriter(export_bigtiff, bigtiff=True) as tw:
             for z in tqdm(range(Z), desc="Export BigTIFF", unit="slice"):
-                seg_slice = np.array(seg[z, :, :])  # bring one 2D slice to RAM
+                seg_slice = np.array(labels[z, :, :])  # bring one 2D slice to RAM
                 tw.write(seg_slice, photometric="minisblack", metadata=None)
 
-    return seg, os.path.join(out_store, "segmentation")
+    return softmax, os.path.join(out_store, "segmentation")
 
 #-----------------------PREPROCESSING FUNCTIONS--------------------------------------------------------------------------------------------------------------
-def data_preprocessing(image_path=None, label_path=None):
+def fix_label_format(seg, chunks):
+    """ Finds unique classes in mutli-channel segmentation files, 
+    and combines into a single 3D array, where each class has a unique pixel value.
+    E.g. (Z,X,Y,2) where thefirst channel has pixel values 0 and 1, and the second channel has 
+    pixel values 0, 1, 2 becomes (Z,X,Y) with pixel values 0, 1, 2, 3"""
+    
+    print("Merging channels into a single class map")
+    assert len(seg.shape)==4, "Expected (Z, X, Y) or (Z, X, Y, C) segmentation"
+    
+    seg = da.from_array(seg) # Create Dask Array with automatic chunk size
+    channel_info = {} # Record info about unique classes in each channel
+
+    for c in range(seg.shape[-1]):
+        values = da.unique(seg[..., c]).compute()
+        assert len(values)<51, "Over 50 unqiue classes identified - check labels file is correct."
+        channel_info[c] = values
+        print(f"Channel {c} classes: {values}")
+
+    merged = da.zeros(seg.shape[:-1], chunks=chunks, dtype="int16")
+    next_class = 1 #Start re-labelling classes starting at 1
+    
+    for c, values in channel_info.items():
+        for v in values:
+            if v == 0: # Skip background class in each channel
+                continue
+
+            mask = seg[..., c] == v
+            # Check for overlapping classes
+            overlap = da.logical_and(mask, merged!=0)
+            if da.any(overlap).compute():
+                tot = da.sum(overlap).compute()
+                print(f"WARNING: Overlap detected for channel {c}, value {v} ({tot} pixels). Previous label overwritten.")
+
+            merged = da.where(mask, next_class, merged)
+            next_class += 1
+    
+    print("Labels file now has shape "+str(merged.shape)+" with classes "+str(da.unique(merged).compute())+".")
+    
+    return merged
+
+def data_preprocessing(image_path=None, label_path=None, chunks='auto'):
     """# Pre-processing
     Load data, downsample if neccessary, normalise and pad.
     Inputs:
@@ -307,72 +291,116 @@ def data_preprocessing(image_path=None, label_path=None):
     # Load image
     print('Loading images from '+str(image_path))
     img=io.imread(image_path)
+    img=da.from_array(img,chunks=chunks)
     print('Size '+str(img.shape))
 
     if len(img.shape)==4:
         print('Image data has dimensions. Cropping to first 3 dimensions')
         img=img[:,:,:,0]
     assert img.ndim == 3, "Expected (Z,X,Y) image"
-
-	# Normalise 
+    
+    # Normalise 
     print('Rescaling data between 0 and 1')
-    img_min = np.amin(img)
-    denominator = np.amax(img)-img_min
-    try:img = (img-img_min)/denominator # Rescale between 0 and 1
-    except: 
-        try:
-            # break image up into quarters and normalise one chunck at a time
-            quarter=int(img.shape[0]/4)
-            for i in range (3):
-                img[i*quarter:(i+1)*quarter,:,:]=(img[i*quarter:(i+1)*quarter,:,:]-img_min)/denominator
-            img[3*quarter:,:,:]=(img[3*quarter:,:,:]-img_min)/denominator
-        except:
-            sixteenth=int(img.shape[0]/16)
-            for i in range (15):
-                img[i*sixteenth:(i+1)*sixteenth,:,:]=(img[i*sixteenth:(i+1)*sixteenth,:,:]-img_min)/denominator
-            img[15*sixteenth:,:,:]=(img[15*sixteenth:,:,:]-img_min)/denominator
+    img_min = da.min(img)
+    denominator = da.nanmax(img)-img_min 
+    img = (img-img_min)/denominator # Rescale between 0 and 1
+    
+    # Set data type
+    img = img.astype('float32')
     
 	#Repeat for labels is present
     if label_path is not None:
         print('Loading labels from '+str(label_path))
-        seg=io.imread(label_path)
-
-        # Normalise 
-        print('Rescaling data between 0 and 1')
-        seg = (seg-np.amin(seg))/(np.amax(seg)-np.amin(seg))
+        seg = io.imread(label_path)
         
         # Find the number of unique classes in segmented training set
-        classes = np.unique(seg)
-		
-        return img, seg, classes
+        if len(seg.shape)>3:
+            # Assume classes are saved as different channels
+            seg = fix_label_format(seg, chunks)
+        else:
+            seg = da.from_array(seg,chunks=chunks)
+            classes = da.unique(seg).compute()
+            
+            assert len(classes)<51, "Over 50 unqiue classes identified - check labels file is correct."
+            print('Labels processed with classes '+str(classes))
+            
+            # Check that classes are consecutive integers starting at 0
+            classes=np.sort(classes)
+            is_consecutive = (classes[0] == 0 and np.array_equal(classes, np.arange(len(classes))))
+    
+            # If not - map classes to integer label values starting at 0
+            if not is_consecutive:
+                mapping = {old: new for new, old in enumerate(classes)}
+                seg_mapped = da.zeros_like(seg, dtype=np.int32)
+                for old, new in mapping.items():
+                    seg_mapped[seg==old] = new
+                seg = seg_mapped
+            
+            seg = seg.astype('int16')            
+           		
+        return img, seg
 
-    return img, None, None
+    return img, None
+
+def list_image_files(directory):
+    """ Lists files in a directory. 
+    If given a path to a single file - splits the directory path from the filename.
+    Returns directory path and list of filename."""
+    if os.path.isdir(directory):
+        # Add all file paths of image_paths
+        image_filenames = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        image_filenames = sorted(image_filenames) # Sort alphabetically
+    elif os.path.isfile(directory):
+        # If file is given, process this file only
+        directory, image_filenames = os.path.split(directory.replace('\\','/'))
+        image_filenames = [image_filenames]
+    else:
+        return None, None
+    
+    return directory, image_filenames
 
 def crop_from_labels(labels, data):
-    iz, ix, iy = np.where(labels[...]!=0) # find instances of non-zero values in X_test along axis 1
-    labels = labels[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1] # use this to index data and labels
-    data = data[min(iz):max(iz)+1, min(ix):max(ix)+1, min(iy):max(iy)+1]
+    """Crops 3D dask array based on labels.
+    Returns a 3D dask array.""" 
+    iz, ix, iy = da.nonzero(labels) # find instances of non-zero values in X_test along axis 1
+    labels = labels[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1] # use this to index data and labels
+    data = data[da.min(iz):da.max(iz)+1, da.min(ix):da.max(ix)+1, da.min(iy):da.max(iy)+1]
     print("Cropped to {}".format(data.shape))
     
     return labels, data
 
-def save_as_dask_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
+def split_train_test(labels, data, val_fraction):
+    """"Splits paired images and labels into training and validation sets given a validation fraction.
+    Takes data and labels as dask arrays."""
+    n_training_imgs = int(data.shape[0]-da.floor(data.shape[0]*val_fraction))
+            
+    train_data = data[0:n_training_imgs,...]
+    train_labels = labels[0:n_training_imgs,...]
+            
+    test_data = data[n_training_imgs:,...]
+    test_labels = labels[n_training_imgs:,...]
+    
+    return train_data, train_labels, test_data, test_labels
+            
+def save_as_zarr_array(data, labels=None, output_path=None, output_name=None, chunks=(64,64,64)):
+    """"Data (and optionally labels) are saved in chunked zarr format.
+    A data header is created to record image shape, ID and path for data/labels."""
     # Create header folder if does not exist
     header_folder=os.path.join(output_path, "headers")
     if not os.path.exists(header_folder):
         os.makedirs(header_folder)
     header_name=os.path.join(header_folder,str(output_name)+"_header")
     
-    # Convert to dask array and save as zarr
-    data = da.from_array(data, chunks=chunks)
+    # Rechunk dask array and save as zarr
+    data = data.rechunk(chunks)
     data.to_zarr(os.path.join(output_path, output_name))
     
     from tUbeNet_classes import DataHeader
     
     # Repeat of labels if present
     if labels is not None: 
-        # Convert to dask array and save as zarr
-        labels = da.from_array(labels, chunks=chunks)
+        # Rechunk dask array and save as zarr
+        labels = labels.rechunk(chunks)
         labels.to_zarr(os.path.join(output_path, str(output_name)+"_labels"))
         
         # Save data header for easy reading in
@@ -392,14 +420,25 @@ def save_as_dask_array(data, labels=None, output_path=None, output_name=None, ch
 #---------------------------EVALUATION----------------------------------------------------------------------
 
 def roc_analysis(model, data_dir, volume_dims=(64,64,64), 
-                 overlap=None, n_classes=2, 
-                 output_path=None, 
-                 binary_output=False): 
+                 overlap=None, n_classes=2, ignore_background=True,
+                 output_path=None, prob_output=True): 
+    """"
+    Plots ROC Curve and Precision-Recall Curve for paired ground truth labels 
+    and non-thresholded predictions (e.g. softmax output).
+    Calculates DICE score, Area under ROC, Average Precision and optimal threshold.
+    Optionally saves tiff image of predicted labels.
     
+    model - trained model to be evaluated
+    data_dir - direcory of image data and corrosponding labels
+    volume_dims and overlap - parameters to pass to predict_segmentation_dask
+    n_classes - number of unquie classes in data labels including backgroud
+    ignore_background - when true, metrics are no calculated for class 0
+    ouput_path - location to save plots and predicted segmentation
+    prob_output - if true, the softmax probabilities will be saved, as opposed to the labels, allowing for custom thresholding
+    """
     optimal_thresholds = []
     recall = []
     precision = []
-    dice = []
     average_precision = []
     
     if not overlap:
@@ -407,6 +446,12 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
 
     for index in range(0,len(data_dir.list_IDs)):
         print('Evaluating model on '+str(data_dir.list_IDs[index])+' data')
+        
+        # Add to lists 
+        optimal_thresholds.append([])
+        recall.append([])
+        precision.append([])
+        average_precision.append([])
 
         # Build output name from image filename and output path     
         dask_name = os.path.join(output_path, str(data_dir.list_IDs[index])+"_prediction")
@@ -416,71 +461,104 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         y_pred, zarr_path = predict_segmentation_dask(
             model,
             data_dir.image_filenames[index],                 
-            dask_name,                  
+            dask_name,              
             volume_dims=volume_dims,   
             overlap=overlap,       
             n_classes=n_classes,
-            preview=False,          
-            binary_output=False, 
-            prob_channel=1,   
+            preview=False  
         )
-                
-        # Create 1D numpy array of predicted output (softmax)
-        y_pred1D = da.ravel(y_pred).astype(np.float32)
         
-        # Create 1D numpy array of true labels
+        y_pred = da.array(y_pred)
         y_test = da.from_zarr(data_dir.label_filenames[index])
-        y_test1D = da.ravel(y_test).astype(np.float32)
-    
-        # ROC Curve and area under curve
-        fpr, tpr, thresholds_roc = roc_curve(y_test1D, y_pred1D, pos_label=1)
-        area_under_curve = auc(fpr, tpr)
         
-        # Plot ROC 
-        fig = plt.figure()
-        plt.plot(fpr, tpr, color='darkorange',
-                lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index]))
-        plt.legend(loc="lower right")
-        fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'.png'))
+        # """Multi-class metrics - need to change predicition function to output one-hot-encoded segmentation """
+        # classes = da.unique(y_test)
+        # p, r, f1, s = precision_recall_fscore_support(y_test1D, y_pred1D, labels=np.array(classes), 
+        #                                       average=None, zero_division=np.nan)     
+        # table = [p, r, f1, s]
+        # df = pd.DataFrame(table, columns = np.array(classes), index=['Precision', 'Recall', 'F1 Score', 'Support'])
+        # print(df)
+               
+        # Skip background class if ignore_bakcground is true
+        start = 0
+        if ignore_background: start = 1
         
-        # Precision-Recall Curve
-        fig, ax = plt.subplots()
-        disp = PrecisionRecallDisplay.from_predictions(np.asarray(y_test1D), np.asarray(y_pred1D), 
-                                                       name='PR Curve', 
-                                                       ax=ax, pos_label=1)
-        ax.set_title("Precision-Recall Curve for "+str(data_dir.list_IDs[index])) 
-        ax.set_xlim([0.0, 1.0])
-        ax.set_ylim([0.0, 1.05])
-        fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'.png'))
-        
-        # Report and log DICE and average precision
-        p, r, thresholds = precision_recall_curve(np.asarray(y_test1D), np.asarray(y_pred1D))
-        f1 = 2*p*r/(p+r)
-        optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
-        
-        print('Optimal threshold (ROC): {}'.format(thresholds[optimal_idx]))
-        optimal_thresholds.append(thresholds[optimal_idx])
-        print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
-        recall.append(r[optimal_idx])
-        print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
-        precision.append(p[optimal_idx])
-        print('DICE Score: {}'.format(f1[optimal_idx]))
-        
-        average_precision.append(average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D)))
-        print('Average Precision Score: {}'.format(average_precision[index]))
-        
-        # Convert to binary with optimal threshold
-        if binary_output:
-            y_pred = np.where(y_pred[...,1]>thresholds[optimal_idx],1,0) 
-
-        # Save as tiff
-        tiff.imwrite(tiff_name, y_pred, photometric="minisblack", metadata=None)     
-        print('Predicted segmentation saved to {}'.format(tiff_name))
+        # Loop through classes
+        for c in range(start, n_classes): 
+            
+            print("Class {}".format(c))
+            # Create 1D numpy array of predicted output (softmax)
+            y_pred1D = da.ravel(y_pred[...,c]).astype(np.float32)
+            
+            # Create 1D numpy array of true labels for class
+            y_test_binary = da.where(y_test==c,1,0)
+            y_test1D = da.ravel(y_test_binary).astype(np.float32)
+            del y_test_binary
+            
+            """Calculate binary metrics"""
+            # ROC Curve and area under curve
+            fpr, tpr, _ = roc_curve(y_test1D, y_pred1D, pos_label=1)
+            area_under_curve = auc(fpr, tpr)
+            
+            # Plot ROC 
+            fig = plt.figure()
+            plt.plot(fpr, tpr, color='darkorange',
+                    lw=2, label='ROC curve (area = %0.5f)' % area_under_curve)
+            plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('Receiver operating characteristic for '+str(data_dir.list_IDs[index])+' class '+str(c))
+            plt.legend(loc="lower right")
+            fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'_class_'+str(c)+'.png'))
+            
+            # Precision-Recall Curve      
+            # Report and log DICE and average precision
+            p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
+            ap = average_precision_score(np.asarray(y_test1D), np.asarray(y_pred1D))
+                        
+            fig = plt.figure()
+            plt.plot(r, p, color='darkorange',
+                    lw=2, label='PR curve (AP = %0.5f)' % ap)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('Recall')
+            plt.ylabel('Precision')
+            plt.title('Precision Recall curve for '+str(data_dir.list_IDs[index])+' class '+str(c))
+            plt.legend(loc="lower right")
+            fig.savefig(os.path.join(output_path,'PRCurve_'+str(data_dir.list_IDs[index])+'_class_'+str(c)+'.png'))
+            
+            f1 = 2*p*r/(p+r+1e-6)
+            optimal_idx = np.argmax(f1) # Find threshold to maximise DICE
+            
+            # Print metrics and add to lists
+            print('Optimal threshold: {}'.format(thresholds[optimal_idx]))
+            optimal_thresholds[index].append(thresholds[optimal_idx])
+            print('Recall at optimal threshold: {}'.format(r[optimal_idx]))
+            recall[index].append(r[optimal_idx])
+            print('Precision at optimal threshold: {}'.format(p[optimal_idx]))
+            precision[index].append(p[optimal_idx])
+            print('DICE Score: {}'.format(f1[optimal_idx]))
+            print('Average Precision Score: {}'.format(ap))
+            average_precision[index].append(ap)
+                    
+            
+        # Save as tiff 
+        if prob_output: 
+            # Reorder ZXYC to ZCXY to allow saving with imwrite
+            y_pred=np.moveaxis(y_pred, -1, 1)        
+            tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZCYX"}, imagej=True, bigtiff=True)
+            print('Predicted segmentation saved to {}'.format(tiff_name))
+        else:
+            # Reverse one hot encoding using optimal thresholds 
+            # !!To Do!! These thresholds should be defined on training data as opposed to test/validation
+            # Add threshold optimisation in training and pass to validation analysis ROC?
+            # Or always use simple argmax? This requires extra class weight tuning to prevent under-represented classes being missed 
+            for c in range(start, n_classes):
+                y_pred[..., c] = np.where(y_pred[..., c]>optimal_thresholds[index][c-start], 1, 0)
+            y_pred = np.argmax(y_pred, axis=-1).astype(np.uint8) 
+            tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZYX"}, imagej=True, bigtiff=True)
+            print('Predicted segmentation saved to {}'.format(tiff_name))
 
     return optimal_thresholds, recall, precision, average_precision
