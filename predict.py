@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Wed Sep  3 16:22:26 2025
@@ -24,44 +24,24 @@ def main(args):
 
     preview = args.preview
     attention = args.attention
+    predict_skeleton = args.predict_skeleton
 
     data_headers = args.data_headers
     model_path = args.model_path
     output_path = args.output_path
-    tiff_path = args.tiff_path
+    export_tiff = args.export_tiff
     
     #----------------------------------------------------------------------------------------------------------------------------------------------
     """ Create Data Directory"""
     # Load data headers into a list
-    header_filenames=[f for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
-    headers = []
-    try:
-        for file in header_filenames: #Iterate through header files
-            file=os.path.join(data_headers,file)
-            with open(file, "rb") as f:
-                data_header = pickle.load(f) # Unpickle DataHeader object
-            headers.append(data_header) # Add to list of headers
-    except IndexError: print("Unable to load data header files from {}".format(data_headers))
+    header_filenames=[os.path.join(data_headers, f) for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
     
-    # Create empty data directory    
-    data_dir = DataDir([], image_dims=[], 
-                       image_filenames=[], 
-                       label_filenames=[], 
-                       data_type=[], exclude_region=[])
-    
-    # Fill directory from headers
-    for header in headers:
-        data_dir.list_IDs.append(header.ID)
-        data_dir.image_dims.append(header.image_dims)
-        data_dir.image_filenames.append(header.image_filename)
-        data_dir.label_filenames.append(None) #Labels not required for prediction
-        data_dir.data_type.append('float32')
-        data_dir.exclude_region.append((None,None,None)) #region to be left out of training for use as validation data (under development)
-        
-    
+    # Create data directory from headers 
+    data_dir = DataDir.from_header(header_filenames, data_type='float32')
+
     """ Load Model """
     # Initialise model
-    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
+    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, dual_output=predict_skeleton)
     # Load weights
     model = tubenet.load_weights(filename=model_path, loss='DICE CE')
     
@@ -77,8 +57,6 @@ def main(args):
         
         # Create output filenames
         dask_name = os.path.join(output_path,str(image_filename)+"_segmentation")
-        if tiff_path: tiff_name=os.path.join(tiff_path,str(image_filename)+"_segmentation.tiff")
-        else: tiff_name = None
         tube.predict_segmentation_dask(
             model,
             i,                 
@@ -86,7 +64,8 @@ def main(args):
             volume_dims=volume_dims,   
             overlap=overlap,       
             n_classes=n_classes,
-            export_bigtiff=tiff_name,
+            predict_skeleton=predict_skeleton,
+            export_bigtiff=export_tiff,
             preview=preview   
         )
 
@@ -110,8 +89,8 @@ if __name__ == "__main__":
                         help="Path to trained model (.h5 file).")
     parser.add_argument("--output_path", type=str, required=True,
                         help="Directory where predictions will be saved.")
-    parser.add_argument("--tiff_path", type=str, default=None,
-                        help="Optional path to save TIFF output in addition to Zarr.")
+    parser.add_argument("--export_tiff", action="store_true",
+                        help="Optional flag to save TIFF output in addition to Zarr.")
 
     parser.add_argument("--volume_dims", type=int, nargs="+", default=[64, 64, 64],
                         help="Volume dimensions passed to CNN. Provide 1 value (isotropic) "
@@ -120,14 +99,17 @@ if __name__ == "__main__":
                         help="Overlap between patches during inference. Provide 1 value (isotropic) "
                              "or 3 values (anisotropic). E.g. --overlap 32 OR --volume_dims 16 32 32. "
                              "Defaults to half of volume_dims.")
+    parser.add_argument("--n_classes", type=int, default=2,
+                        help="Number of classes to predict. Ensure this is the same for all data.")
+
     parser.add_argument("--binary_output", action="store_true",
                         help="Save predictions as binary image. Otherwise, the softmax output will be saved.")
     parser.add_argument("--preview", action="store_true",
                         help="Display preview of predicted segmentation during inference.")
     parser.add_argument("--attention", action="store_true",
                         help="Use this flag if loading a tubenet model built with attention blocks") 
-    parser.add_argument("--n_classes", type=int, default=2,
-                        help="Number of classes to predict. Ensure this is the same for all data.")
+    parser.add_argument("--predict_skeleton", action="store_true",
+                        help="Predict skeleton in addition to segmentation.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)

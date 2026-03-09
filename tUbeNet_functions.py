@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import os
 import numpy as np
 from skimage import io
-from sklearn.metrics import roc_curve, auc, average_precision_score, precision_recall_curve
+from sklearn.metrics import roc_curve, auc, average_precision_score, precision_recall_curve, mean_absolute_error
 import matplotlib.pyplot as plt
 import dask.array as da
 import zarr
@@ -18,7 +18,9 @@ from scipy.signal.windows import general_hamming
 from scipy.ndimage import distance_transform_edt
 from skimage.morphology import skeletonize
 from skimage.util import apply_parallel
+from skimage.metrics import hausdorff_distance
 import tifffile as tiff
+from tUbeNet_metrics import skeleton_dice
 
 # import tensor flow
 import tensorflow as tf
@@ -193,7 +195,7 @@ def crop_from_labels(data, labels, skeleton=None):
         skeleton = skeleton[zmin:zmax+1, xmin:xmax+1, ymin:ymax+1]
     print("Cropped to {}".format(data.shape))
     
-    return labels, data, skeleton
+    return data, labels, skeleton
 
 def split_train_test(data, labels, val_fraction, skeleton=None):
     """"Splits paired images and labels into training and validation sets given a validation fraction.
@@ -281,10 +283,10 @@ def compute_distance_field(skeleton, binary_mask, sigma=2.0, chunks=(64,64,64)):
     Distance values decay exponentially from skeleton (value 1) to 5 pixels away (value ~0).
     
     Inputs:
-        skeleton: 3D binary array (skeleton centerlines)
-        binary_mask: 3D binary array (vessel mask to constrain field)
+        skeleton: 3D binary dask array (skeleton centerlines)
+        binary_mask: 3D binary dask array (vessel mask to constrain field)
         sigma: decay parameter for exponential function (higher = wider falloff)
-        normalize: If True, output is scaled to [0, 1]; if False, raw exponential decay
+        chunks: chunk size for parallel processing (must be same as skeleton and binary_mask)
     
     Outputs:
         distance_field: 3D array with values decaying from 1 to 0, same shape as skeleton
@@ -319,31 +321,22 @@ def predict_segmentation_dask(
     volume_dims=(64, 64, 64),   # (Z,X,Y)
     overlap=(16, 16, 16),       # (Z,X,Y) overlap (must be < volume_dims)
     n_classes=2,                # softmax classes produced by model
-    export_bigtiff=None,        # e.g. "/path/dataset_pred.tif" to export 3D TIFF (optional)
+    predict_skeleton=False,     # Whether to predict skeleton in addition to segmentation
+    export_bigtiff=False,       # Flag to export 3D TIFF (optional)
     preview=False,              # Preview segmentation for every slab of subvolumes processed in the z axis
 ):
     """
     Sliding-window inference with smooth blending.
     Writes two Zarr datasets on disk during accumulation: 'sum' and 'wsum'.
     Final result is written as 'labels' and 'softmax'.
+    Optionally, predicts skeleton in addition to segmentation, which will be written as 'skeleton' dataset.
     Optionally, writes a BigTIFF 3D volume without holding everything in RAM.
     """
 
-    # Open image using Dask array and check dimensions
-    img = da.from_zarr(image_path) # shape (Z,X,Y) or (Z,X,Y,1)
-    if img.ndim == 4 and img.shape[-1] == 1:
-        img = img[..., 0]
-    assert img.ndim == 3, "Expected (Z,X,Y) image"
-    
-    # Make all dimensions int
-    Z, X, Y = map(int, img.shape)
-    stride = np.array(volume_dims, dtype="int32")-np.array(overlap, dtype="int32")
-    
-    # Check for sensible overlap dimensions
-    if any(stride<0):
-        raise ValueError("overlap must be less than volume_dims on each axis")
-        
+    """Define internal functions for padding, plotting previews,... """ 
     def auto_pad(img, volume_dims, stride):
+        # Function to automatically pad the image, allowing patches to cover whole image and avoid boundary artefacts. 
+        # Returns padded image and pad widths for cropping back later.  
         img_shape = np.array(img.shape)
         volume_dims = np.array(volume_dims)
         
@@ -367,7 +360,47 @@ def predict_segmentation_dask(
         padded = da.pad(img, pad_widths, mode='reflect')
         #print(f"Padded from {img.shape} to {tuple(new_shape)}") #Debugging
         return padded, pad_widths
+
+    def plot_preview(original, pred, z, out_store, skel_preview=None):
+        # Plot and save a preview predicted segmentatinog from a single slice
+        # Used to ensure segmentation is sensible without having to wait for entire large image volumes to be processed
+
+        if skel_preview is not None:
+            fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+        else: 
+            fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+        axs[0].imshow(original, cmap="gray")
+        axs[0].set_title(f"Input z={z}")
+        axs[0].axis("off")
+
+        axs[1].imshow(pred, cmap="viridis")
+        axs[1].set_title(f"Prediction z={z}")
+        axs[1].axis("off")
+
+        if skel_preview is not None:
+            axs[2].imshow(skel_preview, cmap="viridis")
+            axs[2].set_title(f"Skeleton z={z}")
+            axs[2].axis("off")
+
+        plt.tight_layout()
+        fig.savefig(os.path.join(out_store,'preview_z'+str(z)+'.png'))    
        
+    
+    # Open image using Dask array and check dimensions
+    img = da.from_zarr(image_path) # shape (Z,X,Y) or (Z,X,Y,1)
+    if img.ndim == 4 and img.shape[-1] == 1:
+        img = img[..., 0]
+    assert img.ndim == 3, "Expected (Z,X,Y) image"
+    
+    # Make all dimensions int
+    Z, X, Y = map(int, img.shape)
+    
+    # Check for sensible overlap dimensions
+    stride = np.array(volume_dims, dtype="int32")-np.array(overlap, dtype="int32")
+    if any(stride<0):
+        raise ValueError("overlap must be less than volume_dims on each axis")
+
     # Pad image to avoid boundary effects and allow patches to cover whole image
     img, pad_widths = auto_pad(img, volume_dims, stride)
 
@@ -378,8 +411,14 @@ def predict_segmentation_dask(
                                   dtype="float32")
     wsum_arr = root.create_dataset("wsum", shape=(*img.shape, 1), chunks=(*volume_dims, 1),
                                    dtype="float32")
+    
+    # Create Zarr stores for skeleton prediction if enabled
+    if predict_skeleton:
+        skel_sum_arr = root.create_dataset("skel_sum", shape=(*img.shape, 1), chunks=(*volume_dims, 1),
+                                           dtype="float32")
 
-    # Compute Hann window for blending
+    # Compute Hamming window for blending
+    # Weights center of the patch highly, while edges are weighted lower to account for less accuracy predictions at the patch boundary
     wz, wx, wy = general_hamming(volume_dims[0],0.75), general_hamming(volume_dims[1],0.75), general_hamming(volume_dims[2],0.75)
     w_patch = wz[:, None, None] * wx[None, :, None] * wy[None, None, :]
     w_patch /= (w_patch.max() + 1e-8) # Normalise to max 1
@@ -392,21 +431,6 @@ def predict_segmentation_dask(
 
     # Total patches for progress bar
     total_patches = windows.shape[0]*windows.shape[1]*windows.shape[2]
-
-    # Preview
-    def plot_preview(original, pred, z, out_store):
-        
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].imshow(original, cmap="gray")
-        axs[0].set_title(f"Input z={z}")
-        axs[0].axis("off")
-
-        axs[1].imshow(pred, cmap="viridis")
-        axs[1].set_title(f"Prediction z={z}")
-        axs[1].axis("off")
-        plt.tight_layout()
-        fig.savefig(os.path.join(out_store,'preview_z'+str(z)+'.png'))
-        
 
     # Inference step - iterate through windows and blend with weighted sum
     step_i = 0
@@ -432,17 +456,28 @@ def predict_segmentation_dask(
 
                     # Predict softmax probability (batch of 1)
                     pred = model.predict(patch, verbose=0)
-                    pred = pred[0] # pred shape: (1,Z,X,Y,C) -> (Z,X,Y,C)
-
-                    # Add weighted prediciton and weighs to accumlators in correct positions                    
-                    sum_arr[z0:z1, x0:x1, y0:y1, :] += pred * w_patch
+                    
+                    # Handle dual-output case (segmentation + skeleton)
+                    # CHECK OUTPUT SHAPES!
+                    if predict_skeleton:
+                        seg_pred, skel_pred = pred[0][0], pred[1][0]  # Seperate outputs, remove batch dim: (Z,X,Y,C) and (Z,X,Y,1)
+                    else:
+                        seg_pred = pred[0]  # pred shape: (1,Z,X,Y,C) -> (Z,X,Y,C)
+                    
+                    # Add weighted segmentation prediction to accumulators
+                    sum_arr[z0:z1, x0:x1, y0:y1, :] += seg_pred * w_patch
                     wsum_arr[z0:z1, x0:x1, y0:y1, :] += w_patch
+                    
+                    # Add weighted skeleton prediction to accumulators if enabled
+                    if predict_skeleton:
+                        skel_sum_arr[z0:z1, x0:x1, y0:y1, :] += skel_pred * w_patch
                     
                     # Update progress bar
                     step_i += 1
                     pbar.update(1)
        
-            if preview and z0>0 and z1<img.shape[0]: # Produce preview if flag present AND this is not the first/last slab (avoids printing padded region) 
+            # Produce preview if flag present AND this is not the first/last slab (avoids printing padded region)
+            if preview and z0>0 and z1<img.shape[0]:  
                 # Normalize current accum/weights to preview
                 z_mid_slice = z0 + (volume_dims[0] // 2)
                 # Read single slice
@@ -466,7 +501,15 @@ def predict_segmentation_dask(
                 orig_slice = img[z_mid_slice, :, :].compute()
                 orig_slice = orig_slice[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
                                   pad_widths[2][0]:img.shape[2]-pad_widths[2][1]] # Remove padding
-                plot_preview(orig_slice, preview_pred, z_mid_slice, out_store)
+                
+                # Repeat for skeleton if predict_skeleton=True
+                if predict_skeleton:
+                    skel_preview = skel_sum_arr[z_mid_slice, :, :, :].astype(np.float32)
+                    skel_preview = np.where(preview_w > 0, skel_preview/ np.maximum(preview_w, 1e-8), 0.0) # Normalise
+                    skel_preview = skel_preview[pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                                  pad_widths[2][0]:img.shape[2]-pad_widths[2][1]] # Remove padding
+                                        
+                plot_preview(orig_slice, preview_pred, z_mid_slice,  out_store, skel_preview=skel_preview)
                 
                 
     # Crop outputs
@@ -474,14 +517,20 @@ def predict_segmentation_dask(
                       pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
                       pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
     wsum_arr = wsum_arr[pad_widths[0][0]:img.shape[0]-pad_widths[0][1],
-                      pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
-                      pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+                        pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                        pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
+    if predict_skeleton:
+        skel_sum_arr = skel_sum_arr[pad_widths[0][0]:img.shape[0]-pad_widths[0][1],
+                                    pad_widths[1][0]:img.shape[1]-pad_widths[1][1],
+                                    pad_widths[2][0]:img.shape[2]-pad_widths[2][1]]
 
     # Normalize and write final zarr
     # Create output store
     labels = root.create_dataset("labels", shape=(Z, X, Y), chunks=volume_dims, dtype="uint8")
     softmax = root.create_dataset("softmax", shape=(Z, X, Y, n_classes), chunks=(*volume_dims, n_classes), dtype="float32")
-    
+    if predict_skeleton:
+        skeleton = root.create_dataset("skeleton", shape=(Z, X, Y), chunks=volume_dims, dtype="float32")
+
     # Process chunk-by-chunk to avoid OOM
     for zi in tqdm(range(windows.shape[0]), desc="Normalising and saving"):
         z0 = zi * stride[0]
@@ -493,28 +542,49 @@ def predict_segmentation_dask(
         slab_sum = np.array(slab_sum)             # bring to RAM slab only
         slab_w   = np.array(slab_w)
         probs = np.where(slab_w > 0, slab_sum / np.maximum(slab_w, 1e-8), 0.0)  # (vz,X,Y,C)
+
+        if predict_skeleton:
+            # Load a slab of skeleton weighted sums and weights
+            slab_skel_sum = skel_sum_arr[z0:z1, :, :, :]  # (vz,X,Y,1)
+            slab_skel_sum = np.array(slab_skel_sum)
+            skel_pred = np.where(slab_w > 0, slab_skel_sum / np.maximum(slab_w, 1e-8), 0.0) # (vz,X,Y,1)
+            skeleton[z0:z1, :, :] = skel_pred[:,:,:,0] # Reshape to (vz, X, Y)
         
         softmax[z0:z1, :, :, :]  =  probs      
         labels[z0:z1, :, :] = np.argmax(probs, axis=-1).astype(np.uint8) 
 
-    # Delete sum_arr and wsum_arr now that we're finished with them
+    # Delete temporary accumulation arrays now that we're finished with them
     del root["sum"]
     del root["wsum"]
-
+    if predict_skeleton:
+        del root["skel_sum"]
+    
     # Optional: export BigTIFF 3D, slice-by-slice to handle very large images
     if export_bigtiff:
-        with tiff.TiffWriter(export_bigtiff, bigtiff=True) as tw:
+        tiff_name = str(out_store)+".tif"
+        with tiff.TiffWriter(tiff_name, bigtiff=True) as tw:
             for z in tqdm(range(Z), desc="Export BigTIFF", unit="slice"):
                 seg_slice = np.array(labels[z, :, :])  # bring one 2D slice to RAM
                 tw.write(seg_slice, photometric="minisblack", metadata=None)
+        if predict_skeleton:
+            # Make a seperate filename for the skeleton! Or can this be added as another channel?
+            skel_tiff_name = str(out_store)+"_skeleton.tif"
+            with tiff.TiffWriter(skel_tiff_name, bigtiff=True) as tw:
+                for z in tqdm(range(Z), desc="Export BigTIFF", unit="slice"):
+                    skel_slice = np.array(skeleton[z, :, :])  # bring one 2D slice to RAM
+                    tw.write(skel_slice, photometric="minisblack", metadata=None)
 
-    return softmax, os.path.join(out_store, "segmentation")
+    # Return paths to predictions
+    if predict_skeleton:
+        return (softmax, skeleton), (os.path.join(out_store, "softmax"), os.path.join(out_store, "skeleton"))
+    else:
+        return softmax, os.path.join(out_store, "softmax")
 
 #---------------------------EVALUATION----------------------------------------------------------------------
 
 def roc_analysis(model, data_dir, volume_dims=(64,64,64), 
                  overlap=None, n_classes=2, ignore_background=True,
-                 output_path=None, prob_output=True): 
+                 output_path=None, prob_output=True, predict_skeleton=False): 
     """"
     Plots ROC Curve and Precision-Recall Curve for paired ground truth labels 
     and non-thresholded predictions (e.g. softmax output).
@@ -551,31 +621,39 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         tiff_name = str(dask_name)+".tif"
 
         # Predict segmentation
-        y_pred, zarr_path = predict_segmentation_dask(
+        y_pred, _ = predict_segmentation_dask(
             model,
             data_dir.image_filenames[index],                 
             dask_name,              
             volume_dims=volume_dims,   
             overlap=overlap,       
             n_classes=n_classes,
-            preview=False  
+            preview=False,
+            predict_skeleton=predict_skeleton  
         )
-        
-        y_pred = da.array(y_pred)
+        if predict_skeleton:
+            y_pred, y_skel_pred = y_pred[0], y_pred[1] #(Z, X, Y, C), (Z, X, Y)
+            y_skel_pred = da.from_array(y_skel_pred, chunks=volume_dims) 
+            y_skel_test = da.from_zarr(data_dir.skeleton_filenames[index])
+        y_pred = da.from_array(y_pred, chunks=(*volume_dims, n_classes))
         y_test = da.from_zarr(data_dir.label_filenames[index])
-        
-        # """Multi-class metrics - need to change predicition function to output one-hot-encoded segmentation """
-        # classes = da.unique(y_test)
-        # p, r, f1, s = precision_recall_fscore_support(y_test1D, y_pred1D, labels=np.array(classes), 
-        #                                       average=None, zero_division=np.nan)     
-        # table = [p, r, f1, s]
-        # df = pd.DataFrame(table, columns = np.array(classes), index=['Precision', 'Recall', 'F1 Score', 'Support'])
-        # print(df)
-               
-        # Skip background class if ignore_bakcground is true
+                       
+        if predict_skeleton:
+            print('Evaluating skeleton prediction')
+            
+            soft_distance_dice = skeleton_dice(y_skel_pred, y_skel_test) # Soft dice score using distance field
+            print('Soft DICE Score: {}'.format(soft_distance_dice))
+
+            mae = mean_absolute_error(da.ravel(y_skel_test).astype(np.float32), da.ravel(y_skel_pred).astype(np.float32))
+            print('Mean Absolute Error: {}'.format(mae))
+
+            hd = hausdorff_distance(da.where(y_skel_test>=0.95, 1, 0).astype(np.int8), da.where(y_skel_pred>=0.95, 1, 0).astype(np.int8), method = 'modified')
+            print('Hausdorff Distance: {}'.format(hd))
+
+        # Skip background class if ignore_background is true
         start = 0
         if ignore_background: start = 1
-        
+
         # Loop through classes
         for c in range(start, n_classes): 
             
@@ -606,6 +684,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             plt.legend(loc="lower right")
             fig.savefig(os.path.join(output_path,'ROC_'+str(data_dir.list_IDs[index])+'_class_'+str(c)+'.png'))
             
+            # clean up
+            del fpr, tpr, area_under_curve
+            
             # Precision-Recall Curve      
             # Report and log DICE and average precision
             p, r, thresholds = precision_recall_curve(y_test1D, y_pred1D, pos_label=1)
@@ -635,6 +716,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             print('DICE Score: {}'.format(f1[optimal_idx]))
             print('Average Precision Score: {}'.format(ap))
             average_precision[index].append(ap)
+
+            #clean up
+            del y_pred1D, y_test1D, p, r, thresholds, f1, ap
                     
             
         # Save as tiff 
@@ -653,5 +737,6 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             y_pred = np.argmax(y_pred, axis=-1).astype(np.uint8) 
             tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZYX"}, imagej=True, bigtiff=True)
             print('Predicted segmentation saved to {}'.format(tiff_name))
+
 
     return optimal_thresholds, recall, precision, average_precision

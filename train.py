@@ -9,14 +9,13 @@ Created on Wed Sep  3 16:21:26 2025
 #Import libraries
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' #Suppress info logs from tf 
-import pickle
 import datetime
 import argparse
 from model import tUbeNet
 import tUbeNet_functions as tube
 from tUbeNet_classes import DataDir, DataGenerator, ImageDisplayCallback, MetricDisplayCallback, FilterDisplayCallback
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
-from tUbeNet_metrics import MacroDice, create_dual_task_loss
+from tUbeNet_metrics import MacroDice
 import tensorflow as tf
 
 def main(args):
@@ -34,11 +33,9 @@ def main(args):
     
     # Training and prediction options
     fine_tune = args.fine_tune  
-    binary_output = args.binary_output
     augment = args.no_augment
     attention = args.attention
     train_skeleton = args.train_skeleton
-    skeleton_loss = args.skeleton_loss
     
     """ Paths and filenames """
     # Training data
@@ -57,33 +54,11 @@ def main(args):
     #----------------------------------------------------------------------------------------------------------------------------------------------
     """ Create Data Directory"""
     # Load data headers into a list
-    header_filenames=[f for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
-    headers = []
-    try:
-        for file in header_filenames: #Iterate through header files
-            file=os.path.join(data_headers,file)
-            with open(file, "rb") as f:
-                data_header = pickle.load(f) # Unpickle DataHeader object
-            headers.append(data_header) # Add to list of headers
-    except FileNotFoundError: print("Unable to load data header files from {data_headers}") 
+    header_filenames=[os.path.join(data_headers, f) for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
     
-    # Create empty data directory    
-    data_dir = DataDir([], image_dims=[], 
-                       image_filenames=[], 
-                       label_filenames=[],
-                       skeleton_filenames=[],
-                       data_type=[], exclude_region=[])
+    # Create data directory from headers 
+    data_dir = DataDir.from_header(header_filenames, data_type='float32')
     
-    # Fill directory from headers
-    for header in headers:
-        data_dir.list_IDs.append(header.ID)
-        data_dir.image_dims.append(header.image_dims)
-        data_dir.image_filenames.append(header.image_filename)
-        data_dir.label_filenames.append(header.label_filename)
-        data_dir.skeleton_filenames.append(getattr(header, 'skeleton_filename', None))  # Get skeleton if available
-        data_dir.data_type.append('float32')
-        data_dir.exclude_region.append((None,None,None)) #region to be left out of training for use as validation data (under development)
-
     """ Create Data Generator """
     # Check if skeletons are available
     skeleton_available = any(skel is not None for skel in data_dir.skeleton_filenames)
@@ -107,6 +82,11 @@ def main(args):
     tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, 
                       dual_output=(skeleton_available and train_skeleton))
     
+    if skeleton_available and train_skeleton:
+        metrics_list = [['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)],['root_mean_squared_error', 'mean_absolute_error']]
+    else:
+        metrics_list = ['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)]
+
     if model_weights_file is not None:
         # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 2 blocks frozen)
         if not os.path.isfile(model_weights_file):
@@ -115,45 +95,19 @@ def main(args):
             else:
                 raise FileNotFoundError("Could not locate model weights file at {}".format(model_weights_file))
         
-        if skeleton_available and train_skeleton:
-            print("ERROR: Loading weights for dual-task model not yet implemented. Please train from scratch with --train_skeleton.")
-            raise NotImplementedError("load_weights for dual-task models needs implementation")
-        else:
-            model = tubenet.load_weights(filename=os.path.join(model_path,model_weights_file), 
-                                         loss=loss, 
-                                         class_weights=class_weights, 
-                                         learning_rate=lr0, 
-                                         metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)],
-                                         freeze_layers=6, fine_tune=fine_tune)
+        model = tubenet.load_weights(filename=model_weights_file, 
+                                     loss=loss, 
+                                     class_weights=class_weights, 
+                                     learning_rate=lr0, 
+                                     metrics=metrics_list,
+                                     freeze_layers=6, fine_tune=fine_tune)
     
     else:
-        if skeleton_available and train_skeleton:
-            # Create dual-task model with learnable weighted loss
-            print("Creating dual-task model for vessel segmentation + skeleton prediction...")
-            model = tubenet.build_model(encoder_only=False)
-            
-            # Create learnable weighted loss
-            dual_loss = create_dual_task_loss(
-                mask_loss=skeleton_loss,
-                class_weights=class_weights,
-                init_log_weight_mask=-0.69,  # w1 ≈ 0.5
-                init_log_weight_skel=-1.2,   # w2 ≈ 0.3
-                init_log_weight_reg=-1.6     # w3 ≈ 0.2
-            )
-            
-            # Compile model with dual loss
-            model.compile(
-                optimizer=tf.keras.optimizers.Adam(learning_rate=lr0),
-                loss=dual_loss,
-                metrics=['accuracy']
-            )
-        else:
-            model = tubenet.create(learning_rate=lr0, 
-                                   loss=loss, 
-                                   class_weights=class_weights, 
-                                   metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)])
+        model = tubenet.create(learning_rate=lr0, 
+                               loss=loss, 
+                               class_weights=class_weights, 
+                               metrics=metrics_list)
 
-    
     
     """ Train and save model """
     
@@ -169,7 +123,7 @@ def main(args):
         monitored_metric='val_loss'
     else:
         monitored_metric='loss'
-    checkpoint = ModelCheckpoint(filepath, monitor=monitored_metric, verbose=1, save_weights_only=True, save_best_only=True, mode='max')
+    checkpoint = ModelCheckpoint(filepath, monitor=monitored_metric, verbose=1, save_weights_only=True, save_best_only=True, mode='auto')
     tbCallback = TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=False, write_images=True)
     imageCallback = ImageDisplayCallback(data_generator,log_dir=os.path.join(log_dir,'images')) 
     filterCallback = FilterDisplayCallback(log_dir=os.path.join(log_dir,'filters')) #experimental
@@ -178,38 +132,18 @@ def main(args):
     # Create directory of validation data
     if val_headers is not None:
         # Import data header
-        header_filenames=[f for f in os.listdir(val_headers) if os.path.isfile(os.path.join(val_headers, f))]
-        headers = []
-        try:
-            for file in header_filenames: #Iterate through header files
-                file=os.path.join(val_headers,file)
-                with open(file, "rb") as f:
-                    val_header = pickle.load(f) # Unpickle DataHeader object
-                headers.append(val_header) # Add to list of headers
-        except FileNotFoundError: print("Unable to load data header files from {val_headers}") 
-            
+        header_filenames=[os.path.join(val_headers, f) for f in os.listdir(val_headers) if os.path.isfile(os.path.join(val_headers, f))]
+
         # Create empty data directory    
-        val_dir = DataDir([], image_dims=[], 
-                           image_filenames=[], 
-                           label_filenames=[], 
-                           data_type=[], exclude_region=[])
-        
-        # Fill directory from headers
-        for header in headers:
-            val_dir.list_IDs.append(header.ID)
-            val_dir.image_dims.append(header.image_dims)
-            val_dir.image_filenames.append(header.image_filename)
-            val_dir.label_filenames.append(header.label_filename)
-            val_dir.data_type.append('float32')
-            val_dir.exclude_region.append((None,None,None))
-       
-    
+        val_dir = DataDir.from_header(header_filenames, data_type='float32')
+            
         vparams = {'batch_size': batch_size,
           'volume_dims': volume_dims, 
           'n_classes': n_classes,
           'dataset_weighting': None,
           'augment': False,
-    	       'shuffle': False}
+    	  'shuffle': False,
+          'skeleton_available': skeleton_available and train_skeleton}
         
         val_generator=DataGenerator(val_dir, **vparams)
         
@@ -290,15 +224,10 @@ if __name__ == "__main__":
     # Training options
     parser.add_argument("--fine_tune", action="store_true",
                         help="Enable fine-tuning by freezing shallow layers.")
-    parser.add_argument("--binary_output", action="store_true",
-                        help="Save predictions as binary image instead of softmax.")
-    
+
     # Skeleton training options
     parser.add_argument("--train_skeleton", action="store_true",
                         help="Enable dual-task training with skeleton prediction. Requires skeleton data in headers.")
-    parser.add_argument("--skeleton_loss", type=str, default="dice_bce",
-                        choices=["dice_bce", "dice_ce", "wcce"],
-                        help="Loss function for vessel mask in dual-task training.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)

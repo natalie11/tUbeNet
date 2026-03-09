@@ -24,6 +24,7 @@ def main(args):
     
     prob_output = args.prob_output
     attention = args.attention
+    predict_skeleton = args.predict_skeleton
 
     data_headers = args.data_headers
     model_path = args.model_path
@@ -32,36 +33,15 @@ def main(args):
     #----------------------------------------------------------------------------------------------------------------------------------------------
     """ Create Data Directory"""
     # Load data headers into a list
-    header_filenames=[f for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
-    headers = []
-    try:
-        for file in header_filenames: #Iterate through header files
-            file=os.path.join(data_headers,file)
-            with open(file, "rb") as f:
-                data_header = pickle.load(f) # Unpickle DataHeader object
-            headers.append(data_header) # Add to list of headers
-    except IndexError: print("Unable to load data header files from {data_headers}") 
+    header_filenames=[os.path.join(data_headers, f) for f in os.listdir(data_headers) if os.path.isfile(os.path.join(data_headers, f))]
     
-    # Create empty data directory    
-    data_dir = DataDir([], image_dims=[], 
-                       image_filenames=[], 
-                       label_filenames=[], 
-                       data_type=[], exclude_region=[])
-    
-    # Fill directory from headers
-    for header in headers:
-        data_dir.list_IDs.append(header.ID)
-        data_dir.image_dims.append(header.image_dims)
-        data_dir.image_filenames.append(header.image_filename)
-        data_dir.label_filenames.append(header.label_filename)
-        data_dir.data_type.append('float32')
-        data_dir.exclude_region.append((None,None,None)) #region to be left out of training for use as validation data (under development)
-    
+    # Create data directory from headers 
+    data_dir = DataDir.from_header(header_filenames, data_type='float32')
     
     """ Load Model """
-    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention)
+    tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, dual_output=predict_skeleton)
     
-    # Load exisiting model 
+    # Load exisiting model weights 
     model = tubenet.load_weights(filename=model_path, loss='DICE BCE')
     
     """ Plot ROC """
@@ -71,7 +51,8 @@ def main(args):
                                           n_classes=n_classes, 
                                           overlap=overlap,
                                           output_path=output_path,
-                                          prob_output=prob_output) 
+                                          prob_output=prob_output,
+                                          predict_skeleton=predict_skeleton) 
 
 def parse_dims(values):
     """Parse volume dimensions: allow either one int (isotropic) or three ints (anisotropic)."""
@@ -107,6 +88,8 @@ if __name__ == "__main__":
                         help="Use this flag if loading a tubenet model built with attention blocks") 
     parser.add_argument("--n_classes", type=int, default=2,
                         help="Number of classes to predict. Ensure this is the same for all data included in testing.")
+    parser.add_argument("--predict_skeleton", action="store_true",
+                        help="Predict skeleton in addition to segmentation.")
 
     args = parser.parse_args()
     args.volume_dims = parse_dims(args.volume_dims)

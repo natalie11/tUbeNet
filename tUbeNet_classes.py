@@ -9,7 +9,7 @@ Developed by Natalie Holroyd (UCL)
 import numpy as np
 import math
 import random
-import pickle
+import json
 import os
 join = os.path.join
 
@@ -30,8 +30,16 @@ class DataHeader:
         self.label_filename = label_filename
         self.skeleton_filename = skeleton_filename
     def save(self, filename):
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # Save header as a JSON file 
+        data = {
+            'ID': self.ID,
+            'image_dims': list(self.image_dims) if self.image_dims is not None else None,
+            'image_filename': self.image_filename,
+            'label_filename': self.label_filename,
+            'skeleton_filename': self.skeleton_filename
+        }
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, sort_keys=True)
 
 class DataDir:
     def __init__(self, list_IDs, image_dims=(1024,1024,1024), image_filenames=None, label_filenames=None, skeleton_filenames=None, data_type='float64', exclude_region=None):
@@ -43,6 +51,70 @@ class DataDir:
         self.list_IDs = list_IDs
         self.data_type = data_type
         self.exclude_region = exclude_region
+
+    @classmethod
+    def from_header(cls, header_files, data_type='float64', exclude_region=None):
+        """Create a DataDir from one or more DataHeader JSON files.
+
+        header_files may be a single path or a list of paths. 
+        """
+        if isinstance(header_files, (str,)):
+            header_files = [header_files]
+
+        image_dims = []
+        image_filenames = []
+        label_filenames = []
+        skeleton_filenames = []
+        ids = []
+        data_type_list = []
+        exclude_region_list = []
+
+        for hf, idx in zip(header_files, range(len(header_files))):
+            try:
+                with open(hf, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except FileNotFoundError: 
+                print("WARNING: Unable to load data header files from {}".format(hf))
+                print("Skipping this file...")
+                continue
+
+            ids.append(data.get('ID'))
+            image_dims.append(tuple(data.get('image_dims')))
+            image_filenames.append(data.get('image_filename'))
+            label_filenames.append(data.get('label_filename'))
+            skeleton_filenames.append(data.get('skeleton_filename'))
+
+            # Handle data_type input - this is only important when using memmap to load subvolumes of data
+            # Not needed for standard use as dask now handles subvolume loading
+            if isinstance(data_type, (str,)):
+                 data_type_list.append(data_type)
+            elif isinstance(data_type, list) and len(data_type) == 1:
+                data_type_list.append(data_type[0])
+            elif isinstance(data_type, list) and len(data_type) == len(header_files):
+                data_type_list.append(data_type[idx])
+            else:
+                data_type_list.append('float64') # default if data_type is not provided in correct format
+
+            # Handle exclude_region input - this is used to exclude certain regions of the data from training
+            # Still a work in progress, may cause unexpected behaviour 
+            if exclude_region is None:
+                exclude_region_list.append((None,None,None))
+            elif isinstance(exclude_region, tuple) and len(exclude_region) == 3:
+                exclude_region_list.append(exclude_region)
+            elif isinstance(exclude_region, list) and len(exclude_region) == 1:
+                exclude_region_list.append(tuple(exclude_region[0]))
+            elif isinstance(exclude_region, list) and len(exclude_region) == len(header_files):
+                exclude_region_list.append(tuple(exclude_region[idx]))
+            else:                
+                exclude_region_list.append((None,None,None)) # default if exclude_region is not provided in correct format
+
+        return cls(ids,
+                   image_dims=image_dims,
+                   image_filenames=image_filenames,
+                   label_filenames=label_filenames,
+                   skeleton_filenames=skeleton_filenames,
+                   data_type=data_type_list,
+                   exclude_region=exclude_region_list)
 
 class DataGenerator(Sequence):
     def __init__(self, data_dir, batch_size=32, volume_dims=(64,64,64), shuffle=True, n_classes=2, 
@@ -97,7 +169,7 @@ class DataGenerator(Sequence):
             # Reshape skeleton to add channel dimension (keep as float)
             y_skeleton = y_skeleton.reshape(*y_skeleton.shape, 1)
             
-            return X, [y_mask, y_skeleton]
+            return X, (y_mask, y_skeleton)
         else:
             X, y = self.__data_generation(list_IDs_temp)
             if self.augment: 
@@ -115,9 +187,9 @@ class DataGenerator(Sequence):
             np.random.shuffle(self.indexes)
     
     def random_coordinates(self, image_dims, exclude_region):
-        coords=np.zeros(3)
+        coords=np.zeros(3, dtype=int)
         for ax in range(3):
-            coords[ax] = random.randint(0,(image_dims[ax]-self.volume_dims[ax]))
+            coords[ax] = random.randint(0,(image_dims[ax]-(self.volume_dims[ax]+1)))
             if exclude_region[ax] is not None:
                 exclude = range(exclude_region[ax][0]-self.volume_dims[ax], exclude_region[ax][1])
                 while coords[ax] in exclude: # if coordinate falls in excluded region, generate new coordinate
@@ -148,6 +220,7 @@ class DataGenerator(Sequence):
                 z0, x0, y0 = self.random_coordinates(self.data_dir.image_dims[index], 
                                                     self.data_dir.exclude_region[index])
                 dz, dx, dy = self.volume_dims
+                #print(f"Attempting to load data from coordinates z:{z0}-{z0+dz}, x:{x0}-{x0+dx}, y:{y0}-{y0+dy} for dataset {ID_temp} (attempt {count})")
                 #Load labels at coordinates
                 y_slice = y_da[z0:z0+dz, x0:x0+dx, y0:y0+dy]
                 y_slice = y_slice.compute()  # brings just this sub-volume to RAM as np.array
@@ -226,8 +299,10 @@ class DataGenerator(Sequence):
                 if y_skeleton is not None:
                     y_skeleton[i] = np.flip(y_skeleton[i],(1,2))
             #if axes==3, no flip
-        return X, y
-    
+        if y_skeleton is not None:    
+            return X, y_mask, y_skeleton
+        else:
+            return X, y_mask    
     
 class MetricDisplayCallback(tf.keras.callbacks.Callback):
 
@@ -258,6 +333,10 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs={}):
         self.x, self.y = self.data_generator.__getitem__(self.index)
         self.pred = self.model.predict(self.x)
+
+        if isinstance(self.y, tuple): #if skeleton training, y is a tuple of (mask, skeleton)
+            self.y = self.y[0] #only use mask for display
+            self.pred = self.pred[0] 
         
         x_shape=self.x.shape
         z_centre = int(x_shape[1]/2)
@@ -269,7 +348,6 @@ class ImageDisplayCallback(tf.keras.callbacks.Callback):
         pred = tf.convert_to_tensor(pred,dtype=tf.float32)
         with self.file_writer.as_default():
             tf.summary.image("Example output", [img, labels, pred], step=epoch)
-
 
 class FilterDisplayCallback(tf.keras.callbacks.Callback):
 

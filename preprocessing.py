@@ -62,9 +62,8 @@ def main(args):
     
     for image_filename, label_filename, skeleton_filename in zip(image_filenames, label_filenames, skeleton_filenames):
         # Set names and paths
-        output_name = os.path.splitext(image_filename)[0] #Take name from image_filneame, without extension
+        output_name = os.path.splitext(image_filename)[0]
         image_path = os.path.join(image_directory, image_filename)
-        # Set label and skeleton paths if provided, else set to None
         if label_filename is not None: 
             label_path = os.path.join(label_directory, label_filename)
         else: label_path = None
@@ -73,7 +72,7 @@ def main(args):
         else:
             skeleton_path = None
             
-        # Run preprocessing - conversiton to dask array, normalisation, remapping of label values if required 
+        # Run preprocessing
         data, labels, skeleton = tube.data_preprocessing(image_path=image_path, 
                                                         label_path=label_path,
                                                         skeleton_path=skeleton_path,

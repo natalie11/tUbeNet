@@ -154,23 +154,22 @@ class tUbeNet(tf.keras.Model):
             upblock4_mask = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3_mask, attention=self.attention)
             upblock5_mask = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4_mask, attention=self.attention)
             
-            output_mask = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5_mask)
+            output_mask = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='mask_output')(upblock5_mask)
             
             # Decoder 2: Skeleton (distance field)
             # Cross-decoder skip connections: incorporate mask decoder features
-            upblock1_skel = DecodeBlock(channels=512, alpha=self.alpha)(
-                concatenate([block5, upblock1_mask], axis=4), block6, attention=self.attention)
+            upblock1_skel = DecodeBlock(channels=512, alpha=self.alpha)(block5, block6, attention=self.attention)
             upblock2_skel = DecodeBlock(channels=256, alpha=self.alpha)(
-                concatenate([block4, upblock2_mask], axis=4), upblock1_skel, attention=self.attention)
+                concatenate([block4, upblock1_mask], axis=4), upblock1_skel, attention=self.attention)
             upblock3_skel = DecodeBlock(channels=128, alpha=self.alpha)(
-                concatenate([block3, upblock3_mask], axis=4), upblock2_skel, attention=self.attention)
+                concatenate([block3, upblock2_mask], axis=4), upblock2_skel, attention=self.attention)
             upblock4_skel = DecodeBlock(channels=64, alpha=self.alpha)(
-                concatenate([block2, upblock4_mask], axis=4), upblock3_skel, attention=self.attention)
+                concatenate([block2, upblock3_mask], axis=4), upblock3_skel, attention=self.attention)
             upblock5_skel = DecodeBlock(channels=32, alpha=self.alpha)(
-                concatenate([block1, upblock5_mask], axis=4), upblock4_skel, attention=self.attention)
+                concatenate([block1, upblock4_mask], axis=4), upblock4_skel, attention=self.attention)
             
             # Output single channel for distance map (sigmoid for 0-1 range)
-            output_skeleton = Conv3D(1, (1, 1, 1), activation='sigmoid')(upblock5_skel)
+            output_skeleton = Conv3D(1, (1, 1, 1), activation='sigmoid', name='skeleton_output')(upblock5_skel)
             
             # Return list of outputs
             output = [output_mask, output_skeleton]
@@ -182,13 +181,14 @@ class tUbeNet(tf.keras.Model):
             upblock4 = DecodeBlock(channels=64, alpha=self.alpha)(block2, upblock3, attention=self.attention)
             upblock5 = DecodeBlock(channels=32, alpha=self.alpha)(block1, upblock4, attention=self.attention)
     
-            output = Conv3D(self.n_classes, (1, 1, 1), activation='softmax')(upblock5)
+            output = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='output')(upblock5)
             
         model = Model(inputs=inputs, outputs=output) 
         return model
     
     def selectLoss(self, loss_name, class_weights=None):
         """select loss from custom losses"""
+        
         if loss_name == 'WCCE':
             # Check class_weights are sensible - if not default to categorical crossentropy
             if class_weights is None:
@@ -208,11 +208,11 @@ class tUbeNet(tf.keras.Model):
                 custom_loss.__module__ = metrics.diceBCELoss.__module__
             else:
                 print("DICE BCE can only be used with binary labels. Using DICE CE instead.")
-                custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
+                custom_loss=partial(metrics.diceCELoss, ignore_background=True, smooth=1e-6)
                 custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
                 custom_loss.__module__ = metrics.diceCELoss.__module__
         elif loss_name == 'DICE CE':
-            custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
+            custom_loss=partial(metrics.diceCELoss, ignore_background=True, smooth=1e-6)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = metrics.diceCELoss.__module__
         elif loss_name == 'focal':
@@ -220,11 +220,33 @@ class tUbeNet(tf.keras.Model):
         else:
             print('Loss not recognised, using categorical crossentropy')
             custom_loss='categorical_crossentropy'   
-        return custom_loss
+
+        # If using dual-output model, return two losses - one for each output
+        if self.dual_output:
+            # Create learnable weighted loss
+            skeleton_loss = partial(metrics.skeletonLoss, smooth=1e-6)
+            skeleton_loss.__name__ = "skeleton_loss" #partial doesn't cope name or module
+            skeleton_loss.__module__ = metrics.skeletonLoss.__module__
+            return custom_loss, skeleton_loss
+        else:
+             return custom_loss
   
     def create(self, loss=None, class_weights=(1,1), learning_rate=1e-3, 
                metrics=['accuracy'], encoder_only=False):
-        custom_loss = self.selectLoss(loss,class_weights)
+
+        # Build and compile model, with or without dual-outputs
+        def build_and_compile(self, loss, learning_rate, metrics, encoder_only):
+            model = self.build_model(encoder_only=encoder_only)
+            if self.dual_output:
+                mask_loss, skeleton_loss = self.selectLoss(loss, class_weights)
+                model.compile(optimizer=Adam(learning_rate=learning_rate), 
+                              loss={'mask_output':mask_loss, 'skeleton_output': skeleton_loss},
+                              metrics={'mask_output': metrics[0], 'skeleton_output': metrics[1]})
+            else:
+                custom_loss = self.selectLoss(loss, class_weights)
+                model.compile(optimizer=Adam(learning_rate=learning_rate), 
+                              loss=custom_loss, metrics=metrics)
+            return model
         
         #Check for multiple GPUs
         physical_devices = tf.config.list_physical_devices('GPU')
@@ -233,18 +255,16 @@ class tUbeNet(tf.keras.Model):
             strategy = tf.distribute.MirroredStrategy()
             print("Creating model on {} GPUs".format(n_gpus))
             with strategy.scope():	
-    	           model = self.build_model(encoder_only=encoder_only)
-    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                model = build_and_compile(self, loss, learning_rate, metrics, encoder_only)
         else:
-            model = self.build_model(encoder_only=encoder_only)
-            model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+            model = build_and_compile(self, loss, learning_rate, metrics, encoder_only)
             
         print('Model Summary')
         model.summary()        
         return model
     
     def load_weights(self, filename=None, loss=None, class_weights=(1,1), 
-             learning_rate=1e-5, metrics=['accuracy'], freeze_layers=0, fine_tune=False):
+             learning_rate=1e-5, metrics=['accuracy'], freeze_layers=0, fine_tune=False, predict_skeleton=False):
         """ Fine Tuning
         Replaces classifer layer and freezes shallow layers for fine tuning
         Inputs:
@@ -275,73 +295,73 @@ class tUbeNet(tf.keras.Model):
         
         if fine_tune:
             if n_gpus>1:
-    	           strategy = tf.distribute.MirroredStrategy()
-    	           print("Creating model on {} GPUs".format(n_gpus))
-    	           with strategy.scope():
-    	                  model = self.build_model()
-    	                  # load weights into new model
-    	                  try:
+                   strategy = tf.distribute.MirroredStrategy()
+                   print("Creating model on {} GPUs".format(n_gpus))
+                   with strategy.scope():
+                          model = self.build_model()
+                          # load weights into new model
+                          try:
                               model.load_weights(mfile)
-    	                  except Exception as e:
+                          except Exception as e:
                               if self.n_classes >2:
                                   # Likely using the publically avaiable binary pre-trained weights for a multi-class model
                                   try:
                                       # Build a base model with binary classifier - this will be replaced later
                                       model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
-                                                           alpha=self.alpha, attention=self.attention).build_model()
+                                                           alpha=self.alpha, attention=self.attention, dual_output=self.dual_output).build_model()
                                       # Load weights from mfile
                                       model.load_weights(mfile)
                                   except: print(e) # If this doesn't work - revert to original error message
                               else: print(e) # 
                               
-    	                  # recover the output from the last layer in the model and use as input to new Classifer
-    	                  last = model.layers[-2].output
-    	                  classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-    	                  model = Model(inputs=[model.input], outputs=[classifier])
+                          # recover the output from the last layer in the model and use as input to new Classifer
+                          last = model.layers[-2].output
+                          classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
+                          model = Model(inputs=[model.input], outputs=[classifier])
                           # freeze weights for selected layers
-    	                  for layer in model.layers[:freeze_layers]: layer.trainable = False
+                          for layer in model.layers[:freeze_layers]: layer.trainable = False
                           
-    	                  model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                          model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
             else:
-    	           model = self.build_model()
-    	           # load weights into new model
-    	           try:
+                   model = self.build_model()
+                   # load weights into new model
+                   try:
                        model.load_weights(mfile)
-    	           except Exception as e:
+                   except Exception as e:
                            if self.n_classes >2:
                                # Likely using the publically avaiable binary pre-trained weights for a multi-class model
                                try:
                                    # Build a base model with binary classifier - this will be replaced later
                                    model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
-                                                        alpha=self.alpha, attention=self.attention).build_model()
+                                                        alpha=self.alpha, attention=self.attention, dual_output=self.dual_output).build_model()
                                    # Load weights from mfile
                                    model.load_weights(mfile)
                                except: print(e) # If this doesn't work - revert to original error message
                            else: print(e) # 
                           
-    	           # recover the output from the last layer in the model and use as input to new Classifer
-    	           last = model.layers[-2].output
-    	           classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-    	           model = Model(inputs=[model.input], outputs=[classifier])
-    	           # freeze weights for selected layers
-    	           for layer in model.layers[:freeze_layers]: layer.trainable = False
+                   # recover the output from the last layer in the model and use as input to new Classifer
+                   last = model.layers[-2].output
+                   classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
+                   model = Model(inputs=[model.input], outputs=[classifier])
+                   # freeze weights for selected layers
+                   for layer in model.layers[:freeze_layers]: layer.trainable = False
                           
-    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                   model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
         else:
             if n_gpus>1:
-    	           strategy = tf.distribute.MirroredStrategy()
-    	           print("Creating model on {} GPUs".format(n_gpus))
-    	           with strategy.scope():
-    	                  model = self.build_model()
-    	                  # load weights into new model
-    	                  model.load_weights(mfile)
-    	                  model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                   strategy = tf.distribute.MirroredStrategy()
+                   print("Creating model on {} GPUs".format(n_gpus))
+                   with strategy.scope():
+                          model = self.build_model()
+                          # load weights into new model
+                          model.load_weights(mfile)
+                          model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
             else:
-    	           model = self.build_model()
-    	           # load weights into new model
-    	           model.load_weights(mfile)
-    	           model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                   model = self.build_model()
+                   # load weights into new model
+                   model.load_weights(mfile)
+                   model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
 
         print('Model Summary')
         model.summary()
