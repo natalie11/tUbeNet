@@ -167,7 +167,8 @@ def main(args):
         validation_metrics = tube.roc_analysis(model, val_dir, 
                                           volume_dims=volume_dims,
                                           n_classes=n_classes, 
-                                          output_path=output_path) 
+                                          output_path=output_path,
+                                          predict_skeleton=(skeleton_available and train_skeleton)) 
 
 def parse_dims(values):
     """Parse volume dimensions: allow either one int (isotropic) or three ints (anisotropic)."""

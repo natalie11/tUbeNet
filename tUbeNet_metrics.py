@@ -158,9 +158,17 @@ def skeletonLoss(y_true, y_pred, smooth=1e-6):
     """Custom loss function - calculates soft dice for skeleton prediction from sigmoid output"""
     MSE = tf.keras.losses.mse(y_true, y_pred)
 
+    """soft dice score calculated between vessel skeleton (where y_true = 1) and sigmoid skeleton prediction (0-1)
+    this encourages the model to predict high values for voxels close to the skeleton."""
+    y_true = tf.math.equal(y_true, tf.constant(1, dtype=y_true.dtype)) # Convert to binary mask, keeping only centreline
+    y_true = tf.cast(y_true, tf.float32) # Change tensor dtype
+
     intersection = tf.reduce_sum(y_true * y_pred) # True positives
     denominator = tf.reduce_sum(y_true + y_pred) # 2xTP + FP + FN
     dice = (2*intersection+smooth)/(denominator+smooth)
+    
+    # Weight losses
+    w = 0.5
 
-    skelDice_MSE = (MSE + (1-dice))/2
+    skelDice_MSE = w*MSE + (1-w)*(1-dice)
     return skelDice_MSE

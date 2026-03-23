@@ -649,6 +649,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
 
             hd = hausdorff_distance(da.where(y_skel_test>=0.95, 1, 0).astype(np.int8), da.where(y_skel_pred>=0.95, 1, 0).astype(np.int8), method = 'modified')
             print('Hausdorff Distance: {}'.format(hd))
+      
+            tiff.imwrite(dask_name+"_skeleton.tif", y_skel_pred, metadata={"axes": "ZYX"}, imagej=True, bigtiff=True)
+            print('Predicted segmentation saved to {}'.format(dask_name+"_skeleton.tif"))
 
         # Skip background class if ignore_background is true
         start = 0
@@ -724,8 +727,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
         # Save as tiff 
         if prob_output: 
             # Reorder ZXYC to ZCXY to allow saving with imwrite
-            y_pred=np.moveaxis(y_pred, -1, 1)        
-            tiff.imwrite(tiff_name, y_pred, metadata={"axes": "ZCYX"}, imagej=True, bigtiff=True)
+            y_pred=np.moveaxis(y_pred, -1, 1)  
+            # Save channels from 'start' to 'n_classes', skipping background if ignore_background=True      
+            tiff.imwrite(tiff_name, y_pred[start:,...], metadata={"axes": "ZCYX"}, imagej=True, bigtiff=True)
             print('Predicted segmentation saved to {}'.format(tiff_name))
         else:
             # Reverse one hot encoding using optimal thresholds 
