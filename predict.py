@@ -43,7 +43,7 @@ def main(args):
     # Initialise model
     tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, dual_output=predict_skeleton)
     # Load weights
-    model = tubenet.load_weights(filename=model_path, loss='DICE CE')
+    model = tubenet.load_weights_and_compile(filename=model_path, loss='DICE CE')
     
     # If undefined set overlap to half volume_dims
     if not overlap:

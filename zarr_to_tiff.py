@@ -9,9 +9,9 @@ import numpy as np
 import tifffile as tiff
 import dask.array as da
 
-image_path = 'C:/Users/Natal/Documents/CCM/code_testing/skeleton/prediction/2Photon_murineOlfactoryBulbLectin_subvolume500x500x79-val_prediction/skeleton'
+image_path = "c:/Users/Natal/Documents/CCM/code_testing/skeleton/preprocessed/test/2Photon_murineOlfactoryBulbLectin_subvolume500x500x79-val"
 output_path = 'C:/Users/Natal/Documents/CCM/code_testing/skeleton/prediction'
-name = "skeleton_prediction"
+name = "example_test"
 
 img = da.from_zarr(image_path)
 

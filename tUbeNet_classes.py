@@ -256,7 +256,7 @@ class DataGenerator(Sequence):
             X[i] = rotate(X[i], angle.item(), reshape=False, order=3, mode='reflect')
             y_mask[i] = rotate(y_mask[i], angle.item(), reshape=False, order=0, mode='reflect')
             if y_skeleton is not None:
-                y_skeleton[i] = rotate(y_skeleton[i], angle.item(), reshape=False, order=1, mode='reflect')
+                y_skeleton[i] = rotate(y_skeleton[i], angle.item(), reshape=False, order=0, mode='reflect')
             
             #Zoom and crop
             scale = np.random.uniform(1.0,1.25, size=1)
@@ -264,7 +264,7 @@ class DataGenerator(Sequence):
             y_maskzoom = zoom(y_mask[i], scale.item(), order=0, mode='reflect')
             y_skelzoom = None
             if y_skeleton is not None:
-                y_skelzoom = zoom(y_skeleton[i], scale.item(), order=1, mode='reflect')
+                y_skelzoom = zoom(y_skeleton[i], scale.item(), order=0, mode='reflect')
             
             (d,h,w)=X[i].shape
             (dz,hz,wz)=Xzoom.shape

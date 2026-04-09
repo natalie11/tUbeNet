@@ -83,9 +83,9 @@ def main(args):
                       dual_output=(skeleton_available and train_skeleton))
     
     if skeleton_available and train_skeleton:
-        metrics_list = [['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)],['root_mean_squared_error', 'mean_absolute_error']]
+        metrics_list = [[ MacroDice(n_classes, ignore_background=True)],['root_mean_squared_error', MacroDice(2, ignore_background=True)]]
     else:
-        metrics_list = ['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)]
+        metrics_list = [ MacroDice(n_classes, ignore_background=True)]
 
     if model_weights_file is not None:
         # Load exisiting model with or without fine tuning adjustment (fine tuning -> classifier replaced and first 2 blocks frozen)
@@ -95,7 +95,7 @@ def main(args):
             else:
                 raise FileNotFoundError("Could not locate model weights file at {}".format(model_weights_file))
         
-        model = tubenet.load_weights(filename=model_weights_file, 
+        model = tubenet.load_weights_and_compile(filename=model_weights_file, 
                                      loss=loss, 
                                      class_weights=class_weights, 
                                      learning_rate=lr0, 

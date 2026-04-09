@@ -155,20 +155,32 @@ def diceBCELoss(y_true, y_pred, smooth=1e-6):
     return dice_BCE
 
 def skeletonLoss(y_true, y_pred, smooth=1e-6):
-    """Custom loss function - calculates soft dice for skeleton prediction from sigmoid output"""
-    MSE = tf.keras.losses.mse(y_true, y_pred)
+    """Custom loss function combining MSE and 'soft dice' between sigmoid skeleton prediction and distance field of skeleton."""
+    MSE=tf.keras.losses.mse(y_true, y_pred)
 
-    """soft dice score calculated between vessel skeleton (where y_true = 1) and sigmoid skeleton prediction (0-1)
-    this encourages the model to predict high values for voxels close to the skeleton."""
-    y_true = tf.math.equal(y_true, tf.constant(1, dtype=y_true.dtype)) # Convert to binary mask, keeping only centreline
-    y_true = tf.cast(y_true, tf.float32) # Change tensor dtype
+    """Notes on soft dice score rationale: 
+    'Soft' dice is calculated between skeleton distance field and sigmoid skeleton prediction (0-1) to provide a smooth output.
+    Both are masked to remove values below 0.5, which correspond to voxels >~2 voxels from the skeleton in the distance field. 
+    This avoids the issue of low value predictions adding to a high cumulative 'false positive' rate far from the skeleton.
+    E.g. if background voxels in the prediciton all have values ~0.1 this would sum to a high soft FP count
+    despite not being considered 'positive' predictions when thresholded. Due to the sparsity of skeleton voxels, this is essential
+    to provide a meaningful measure of skeleton similarity not dominated by the large number of background voxels."""
+    # Mask to remove values below 0.5
+    y_mask = tf.math.greater(y_true, tf.constant(0.5, dtype=y_true.dtype))
+    y_masked = tf.math.multiply(y_true, tf.cast(y_mask, tf.float32))
 
-    intersection = tf.reduce_sum(y_true * y_pred) # True positives
-    denominator = tf.reduce_sum(y_true + y_pred) # 2xTP + FP + FN
+    y_pred_mask = tf.greater(y_pred, tf.constant(0.5, dtype=y_pred.dtype))
+    y_pred_masked = tf.math.multiply(y_pred, tf.cast(y_pred_mask, tf.float32))
+
+    # Calculate DICE score between masked skeleton prediction and masked skeleton distance field
+    intersection = tf.reduce_sum(y_masked * y_pred_masked) # True positives
+    denominator = tf.reduce_sum(y_masked + y_pred_masked) # 2xTP + FP + FN
     dice = (2*intersection+smooth)/(denominator+smooth)
-    
-    # Weight losses
-    w = 0.5
 
-    skelDice_MSE = w*MSE + (1-w)*(1-dice)
+    # Weight losses - balance between MSE and DICE
+    # MSE is a typically ~2 orders of magnitude smaller than (1-dice)so weighting is higher
+    w_mse = 100
+    w_dice = 1
+
+    skelDice_MSE = w_mse*MSE + w_dice*(1-dice)
     return skelDice_MSE

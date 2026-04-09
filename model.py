@@ -108,6 +108,8 @@ class UBlock(tf.keras.layers.Layer):
 		return activ2
     
 class EncoderOnlyOutput(tf.keras.layers.Layer):
+    # Additional classifier layer for encoder-only model - takes output from UBlock and outputs class probabilities
+    # Not currently used
 	def __init__(self, channels=64, alpha=0.2):
 		super(EncoderOnlyOutput,self).__init__()
 		self.flatten = Flatten()
@@ -144,7 +146,7 @@ class tUbeNet(tf.keras.Model):
         block6 = UBlock(channels=1024, alpha=self.alpha)(block5)
         
         if encoder_only:
-            output = EncoderOnlyOutput(channels=64, alpha=self.alpha)(block6)
+            output = block6
             
         elif self.dual_output:
             # Decoder 1: Mask (vessel segmentation)
@@ -263,16 +265,16 @@ class tUbeNet(tf.keras.Model):
         model.summary()        
         return model
     
-    def load_weights(self, filename=None, loss=None, class_weights=(1,1), 
-             learning_rate=1e-5, metrics=['accuracy'], freeze_layers=0, fine_tune=False, predict_skeleton=False):
-        """ Fine Tuning
-        Replaces classifer layer and freezes shallow layers for fine tuning
+    def load_weights_and_compile(self, filename=None, loss=None, class_weights=(1,1), 
+             learning_rate=1e-5, metrics=['accuracy'], freeze_layers=6, fine_tune=False):
+        """ 
         Inputs:
         filename = path to file containing model weights
-        freeze_layers = number of layers to freeze for training (int, default 0)
+        freeze_layers = number of layers to freeze for training (int, default 6 = all layers in encoder)
         learning_rate = learning rate (float, default 1e-5)
         loss = loss function, function or string
         metrics = training metrics, list of functions or strings
+        fine_tune = replace classifier layer, bool
         Outputs:
         model = compiled model
         """
@@ -289,65 +291,83 @@ class tUbeNet(tf.keras.Model):
             mfile = filename+'.h5'
         elif os.path.isfile(filename+'.hdf5'):
             mfile = (filename+'.hdf5')
-        else: raise ValueError("Could not locate model weights file at {}".format(filename))
+        else: raise OSError("Could not locate model weights file at {}".format(filename))
         
         custom_loss=self.selectLoss(loss,class_weights)
+
+        def check_metrics(metrics):
+            if self.dual_output and not all(isinstance(m, (list, tuple)) for m in metrics):
+                # If metrics does not contain sub-lists for each output, add RSME for skeleton output by default
+                return [metrics, ['root_mean_squared_error']]
+            return metrics
+        
+        def compile_model(model, custom_loss, learning_rate, metrics, fine_tune=False):
+            if self.dual_output:
+                # Assign different losses and metrics to each output, with correct layer names depending on whether fine-tuning or not
+                if fine_tune:
+                    mask_output_name='new_mask_output'
+                    skeleton_output_name='new_skeleton_output'
+                else:
+                    mask_output_name='mask_output'
+                    skeleton_output_name='skeleton_output'
+                model.compile(optimizer=Adam(learning_rate=learning_rate), 
+                              loss={mask_output_name:custom_loss[0], skeleton_output_name: custom_loss[1]},
+                              metrics={mask_output_name: metrics[0], skeleton_output_name: metrics[1]})
+            else:
+                 model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+            return model
+        
+        def load_for_fine_tuning(mfile, freeze_layers, learning_rate, custom_loss, metrics):
+            model = self.build_model()
+            # load weights into new model
+            try:
+                model.load_weights(mfile)
+            except Exception as e:
+                if self.n_classes >2:
+                    # Likely using the publically avaiable binary pre-trained weights for a multi-class model
+                    print(f"ERROR LOADING WEIGHTS. This may be caused by a mismatch in the number of classes.\
+                          \nAttempting to load weights into binary model. A new classifier with {self.n_classes} classes will be added.")
+                    try:
+                        # Build a base model with binary classifier - this will be replaced later
+                        model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
+                                        alpha=self.alpha, attention=self.attention, dual_output=self.dual_output).build_model()
+                        # Load weights from mfile
+                        model.load_weights(mfile)
+                    except: print(f"ERROR LOADING WEIGHTS. Ensure model weights file matches the model architecture. If loading weights from a single-output model to a dual-output architecture, use 'load_encoder_and_compile' function.\
+                                  \nOriginal error: {e}") # If this doesn't work - revert to original error message
+                else: print(f"ERROR LOADING WEIGHTS. Ensure model weights file matches the model architecture. If loading weights from a single-output model to a dual-output architecture, use 'load_encoder_and_compile' function.\
+                                  \nOriginal error: {e}")
+
+            # recover the output from the last layer in the model and use as input to new Classifer
+            if self.dual_output:
+                last_mask = model.get_layer('mask_output').input
+                last_skeleton = model.get_layer('skeleton_output').input
+                new_mask_classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='new_mask_output')(last_mask)
+                new_skeleton_classifier = Conv3D(1, (1, 1, 1), activation='sigmoid', name='new_skeleton_output')(last_skeleton)
+                model = Model(inputs=[model.input], outputs=[new_mask_classifier, new_skeleton_classifier])
+            else:
+                last = model.layers[-2].output
+                classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
+                model = Model(inputs=[model.input], outputs=[classifier])
+
+            # freeze weights for selected layers
+            for layer in model.layers[:freeze_layers]: layer.trainable = False
+
+            # Compile model
+            metrics = check_metrics(metrics)
+            model = compile_model(model, custom_loss, learning_rate, metrics)
+            return model
         
         if fine_tune:
             if n_gpus>1:
                    strategy = tf.distribute.MirroredStrategy()
                    print("Creating model on {} GPUs".format(n_gpus))
                    with strategy.scope():
-                          model = self.build_model()
-                          # load weights into new model
-                          try:
-                              model.load_weights(mfile)
-                          except Exception as e:
-                              if self.n_classes >2:
-                                  # Likely using the publically avaiable binary pre-trained weights for a multi-class model
-                                  try:
-                                      # Build a base model with binary classifier - this will be replaced later
-                                      model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
-                                                           alpha=self.alpha, attention=self.attention, dual_output=self.dual_output).build_model()
-                                      # Load weights from mfile
-                                      model.load_weights(mfile)
-                                  except: print(e) # If this doesn't work - revert to original error message
-                              else: print(e) # 
-                              
-                          # recover the output from the last layer in the model and use as input to new Classifer
-                          last = model.layers[-2].output
-                          classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-                          model = Model(inputs=[model.input], outputs=[classifier])
-                          # freeze weights for selected layers
-                          for layer in model.layers[:freeze_layers]: layer.trainable = False
-                          
-                          model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                        model = load_for_fine_tuning(mfile, freeze_layers, learning_rate, custom_loss, metrics)             
             else:
-                   model = self.build_model()
-                   # load weights into new model
-                   try:
-                       model.load_weights(mfile)
-                   except Exception as e:
-                           if self.n_classes >2:
-                               # Likely using the publically avaiable binary pre-trained weights for a multi-class model
-                               try:
-                                   # Build a base model with binary classifier - this will be replaced later
-                                   model = tUbeNet(n_classes=2, input_dims=self.input_dims, dropout=self.dropout, 
-                                                        alpha=self.alpha, attention=self.attention, dual_output=self.dual_output).build_model()
-                                   # Load weights from mfile
-                                   model.load_weights(mfile)
-                               except: print(e) # If this doesn't work - revert to original error message
-                           else: print(e) # 
-                          
-                   # recover the output from the last layer in the model and use as input to new Classifer
-                   last = model.layers[-2].output
-                   classifier = Conv3D(self.n_classes, (1, 1, 1), activation='softmax', name='newClassifier')(last)
-                   model = Model(inputs=[model.input], outputs=[classifier])
-                   # freeze weights for selected layers
-                   for layer in model.layers[:freeze_layers]: layer.trainable = False
-                          
-                   model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                   model = load_for_fine_tuning(mfile, freeze_layers, learning_rate, custom_loss, metrics)
 
+        # If not fine-tuning, load weights into model without replacing classifier or freezing layers
         else:
             if n_gpus>1:
                    strategy = tf.distribute.MirroredStrategy()
@@ -355,25 +375,32 @@ class tUbeNet(tf.keras.Model):
                    with strategy.scope():
                           model = self.build_model()
                           # load weights into new model
-                          model.load_weights(mfile)
-                          model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                          try:
+                            model.load_weights(mfile)
+                          except Exception as e: print(f"ERROR LOADING WEIGHTS. Ensure model weights file matches the model architecture (single- versus dual-output) and number of segmentation classes.\
+                                                       \nIf loading weights for fine tuning, ensure fine_tune flag is present.\
+                                                       \nOriginal error: {e}")
+                          model = compile_model(model, custom_loss, learning_rate, check_metrics(metrics), fine_tune=False)
             else:
                    model = self.build_model()
                    # load weights into new model
-                   model.load_weights(mfile)
-                   model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                   try:
+                       model.load_weights(mfile)
+                   except Exception as e: print(f"ERROR LOADING WEIGHTS. Ensure model weights file matches the model architecture (single- versus dual-output) and number of segmentation classes.\
+                                                \nIf loading weights for fine tuning, ensure fine_tune flag is present.\
+                                                \nOriginal error: {e}")
+                   model = compile_model(model, custom_loss, learning_rate, check_metrics(metrics), fine_tune=False)
 
         print('Model Summary')
         model.summary()
         return model
         
-    def load_encoder(self, filename=None, loss=None, class_weights=(1,1), 
-             learning_rate=1e-5, metrics=['accuracy']):
-        """ Fine Tuning
-        Replaces classifer layer and freezes shallow layers for fine tuning
+    def load_encoder_and_compile(self, filename=None, loss=None, class_weights=(1,1), 
+             learning_rate=1e-5, metrics=['accuracy'], freeze_layers=6):
+        """ 
         Inputs:
         filename = path to file containing model weights
-        freeze_layers = number of layers to freeze for training (int, default 0)
+        freeze_layers = number of layers to freeze for training (int, default 6 = all layers in encoder)
         learning_rate = learning rate (float, default 1e-5)
         loss = loss function, function or string
         metrics = training metrics, list of functions or strings
@@ -385,52 +412,54 @@ class tUbeNet(tf.keras.Model):
         n_gpus=len(physical_devices)
         # create path for file containing weights
         if filename is None:
-            raise ValueError("model weights filename must be provided")
-        if os.path.isfile(filename+'.h5'):
+            raise ValueError("Model weights filename must be provided")
+        if os.path.isfile(filename):
+            mfile=filename
+        elif os.path.isfile(filename+'.h5'):
             mfile = filename+'.h5'
         elif os.path.isfile(filename+'.hdf5'):
             mfile = (filename+'.hdf5')
-        else: print("No model weights file found")
-        
-        custom_loss=self.selectLoss(loss,class_weights)
+        else: ("Could not locate model weights file at {}".format(filename))
+
+        def build_load_compile(mfile, loss, class_weights, learning_rate, metrics, freeze_layers):
+            # build and load weights into encoder only model
+            encoder_model = self.build_model(encoder_only=True)
+            encoder_model.load_weights(mfile)
+
+            # build full model
+            model = self.build_model()
+
+            # transfer weights for all encoder layers
+            for i, layer in enumerate(encoder_model.layers):
+                print('Copying weights from', layer.name, 'to', model.layers[i].name)
+                weights = layer.get_weights()
+                model.layers[i].set_weights(weights)
+                # freeze encoder layers if specified
+                if i < freeze_layers:
+                    model.layers[i].trainable = False
+            
+            # Compile model
+            if self.dual_output:
+                mask_loss, skeleton_loss = self.selectLoss(loss, class_weights)
+                model.compile(optimizer=Adam(learning_rate=learning_rate), 
+                              loss={'mask_output':mask_loss, 'skeleton_output': skeleton_loss},
+                              metrics={'mask_output': metrics[0], 'skeleton_output': metrics[1]})
+            else:
+                custom_loss = self.selectLoss(loss, class_weights)
+                model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+
+            return model
         
         if n_gpus>1:
             strategy = tf.distribute.MirroredStrategy()
             print("Creating model on {} GPUs".format(n_gpus))
             with strategy.scope():
                 # build and load weights into encoder only model
-                encoder_model = self.build_model(encoder_only=True)
-                encoder_model.load_weights(mfile)
-                
-                # build full model
-                model = self.build_model()
-                
-                # transfer weights for all encoder layers, except dense layer
-                for i, layer in enumerate(encoder_model.layers[:-1]):
-                    print('Copying weights from', layer.name, 'to', model.layers[i].name)
-                    weights = layer.get_weights()
-                    model.layers[i].set_weights(weights)
-
-                #Compile model
-                model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
+                model = build_load_compile(mfile, loss, class_weights, learning_rate, metrics, freeze_layers)
 
         else:
             # build and load weights into encoder only model
-            encoder_model = self.build_model(encoder_only=True)
-            encoder_model.load_weights(mfile)
-                
-            # build full model
-            model = self.build_model()
-                
-            # transfer weights for all encoder layers, except dense layer
-            for i, layer in enumerate(encoder_model.layers[:-1]):
-                print('Copying weights from', layer.name, 'to', model.layers[i].name)
-                weights = layer.get_weights()
-                model.layers[i].set_weights(weights)
-
-            #Compile model
-            model.compile(optimizer=Adam(learning_rate=learning_rate), loss=custom_loss, metrics=metrics)
-
+            model = build_load_compile(mfile, loss, class_weights, learning_rate, metrics, freeze_layers)
 
         print('Model Summary')
         model.summary()

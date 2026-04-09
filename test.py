@@ -42,7 +42,7 @@ def main(args):
     tubenet = tUbeNet(n_classes=n_classes, input_dims=volume_dims, attention=attention, dual_output=predict_skeleton)
     
     # Load exisiting model weights 
-    model = tubenet.load_weights(filename=model_path, loss='DICE BCE')
+    model = tubenet.load_weights_and_compile(filename=model_path, loss='DICE BCE')
     
     """ Plot ROC """
     # Evaluate model on data

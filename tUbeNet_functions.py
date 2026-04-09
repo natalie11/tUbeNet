@@ -122,6 +122,8 @@ def data_preprocessing(image_path=None, label_path=None, skeleton_path=None, chu
         print('Loading labels from '+str(label_path))
         seg = io.imread(label_path)
         
+        assert seg.shape == img.shape, "Image and label shapes do not match. Label shape: {}, Image shape: {}".format(seg.shape, img.shape) 
+
         # Find the number of unique classes in segmented training set
         if len(seg.shape)>3:
             # Assume classes are saved as different channels
@@ -151,6 +153,8 @@ def data_preprocessing(image_path=None, label_path=None, skeleton_path=None, chu
         print('Loading skeleton from '+str(skeleton_path))
         skeleton = io.imread(skeleton_path)
         skeleton = da.from_array(skeleton, chunks=chunks)
+
+        assert skeleton.shape == img.shape, "Image and skeleton shapes do not match. Skeleton shape: {}, Image shape: {}".format(skeleton.shape, img.shape)
 
         if len(skeleton.shape)==4:
             print('Skeleton data has 4 dimensions. Cropping to first 3 dimensions')
@@ -636,7 +640,9 @@ def roc_analysis(model, data_dir, volume_dims=(64,64,64),
             y_skel_pred = da.from_array(y_skel_pred, chunks=volume_dims) 
             y_skel_test = da.from_zarr(data_dir.skeleton_filenames[index])
         y_pred = da.from_array(y_pred, chunks=(*volume_dims, n_classes))
+        print('y_pred shape:', y_pred.shape)
         y_test = da.from_zarr(data_dir.label_filenames[index])
+        print('y_test shape:', y_test.shape)
                        
         if predict_skeleton:
             print('Evaluating skeleton prediction')
