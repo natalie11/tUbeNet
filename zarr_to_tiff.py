@@ -9,22 +9,18 @@ import numpy as np
 import tifffile as tiff
 import dask.array as da
 
-image_path = '/home/natalie/Documents/CDC/preprocessed/nrrdtest/Volume_DimmigransM1_crop1_labels'
-output_path = '/home/natalie/Documents/CDC/predictions'
-name = "processed_labels"
+image_path = '/media/natalie/Vessel Datasets/Collabs/Gaspar_fly/predictions/Predictions_3class_model/DkepulauanaF1_abdomencrop1_prediction/labels'
+output_path = '/media/natalie/Vessel Datasets/Collabs/Gaspar_fly/predictions/Predictions_3class_model'
+name = "DkepulauanaF1_labels_pred"
 
 img = da.from_zarr(image_path)
+tiff_name=os.path.join(output_path,name+".tiff")
 
 if len(img.shape)>3:
-    # Save each channel independantly
-    for c in range(img.shape[-1]):
-        tiff_name=os.path.join(output_path,name+"_channel_"+str(c)+".tiff")
-        with tiff.TiffWriter(tiff_name, bigtiff=True) as tw:
-            for z in range(img.shape[0]):
-                img_slice = np.array(img[z, :, :, c])  # bring one 2D slice to RAM
-                tw.write(img_slice, photometric="minisblack", metadata=None)               
+    # Save multi-channel imgage, reorder dims to ZCYX
+    img=np.moveaxis(img, -1, 1)
+    tiff.imwrite(tiff_name, img, metadata={"axes": "ZCYX"}, imagej=True, bigtiff=True)             
 else:
-    tiff_name=os.path.join(output_path,name+".tiff")
     with tiff.TiffWriter(tiff_name, bigtiff=True) as tw:
         for z in range(img.shape[0]):
             img_slice = np.array(img[z, :, :])  # bring one 2D slice to RAM

@@ -47,11 +47,15 @@ def dice(y_true, y_pred, pos_class=1, smooth=1e-6):
     dice = (2*(P*R)+smooth)/(P+R+smooth)
     return dice
 
-def softDice(y_true, y_pred, smooth=1e-6):
+def softDice(y_true, y_pred, smooth=1e-6, ignore_background=False):
     axes = tuple(range(len(y_pred.shape)-1)) #get axes to reduce along 
     intersection = tf.reduce_sum(y_true * y_pred, axis=axes)
     denominator = tf.reduce_sum(y_true + y_pred, axis=axes)
     dice = (2*intersection+smooth)/(denominator+smooth)
+    
+    if ignore_background:
+        dice=dice[...,1:] # Exclude background class (index 0)
+        
     return dice
 
 class MacroDice(tf.keras.metrics.Metric):
@@ -129,14 +133,14 @@ def weighted_crossentropy(y_true, y_pred, weights):
     
 	return tf.keras.losses.categorical_crossentropy(y_true, y_pred,) * weight_mask
 
-def diceCELoss(y_true, y_pred, smooth=1e-6):    
+def diceCELoss(y_true, y_pred, smooth=1e-6, ignore_background=False):    
     """Custom loss function - calculates categorical crossentropy and mean soft dice across all classes"""   
     y_pred = tf.cast(y_pred, tf.float32) # Change tensor dtype 
     y_true = tf.cast(y_true, tf.float32)
     
     CE = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
 
-    dice_classwise = softDice(y_true, y_pred, smooth=smooth)
+    dice_classwise = softDice(y_true, y_pred, smooth=smooth, ignore_background=ignore_background)
     meanDice = tf.reduce_mean(dice_classwise)
 
     dice_CE = (CE +(1-meanDice))/2

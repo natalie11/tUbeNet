@@ -104,14 +104,14 @@ def main(args):
                                      loss=loss, 
                                      class_weights=class_weights, 
                                      learning_rate=lr0, 
-                                     metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)],
+                                     metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)],
                                      freeze_layers=6, fine_tune=fine_tune)
     
     else:
         model = tubenet.create(learning_rate=lr0, 
                                loss=loss, 
                                class_weights=class_weights, 
-                               metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes)])
+                               metrics=['accuracy', 'recall', 'precision', MacroDice(n_classes, ignore_background=True)])
     
     
     """ Train and save model """

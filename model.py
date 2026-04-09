@@ -178,11 +178,11 @@ class tUbeNet(tf.keras.Model):
                 custom_loss.__module__ = metrics.diceBCELoss.__module__
             else:
                 print("DICE BCE can only be used with binary labels. Using DICE CE instead.")
-                custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
+                custom_loss=partial(metrics.diceCELoss,smooth=1e-6, ignore_background=True)
                 custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
                 custom_loss.__module__ = metrics.diceCELoss.__module__
         elif loss_name == 'DICE CE':
-            custom_loss=partial(metrics.diceCELoss,smooth=1e-6)
+            custom_loss=partial(metrics.diceCELoss,smooth=1e-6, ignore_background=True)
             custom_loss.__name__ = "custom_loss" #partial doesn't cope name or module attribute from function
             custom_loss.__module__ = metrics.diceCELoss.__module__
         elif loss_name == 'focal':
